@@ -1,0 +1,6 @@
+{
+  "name": "مدیریت جامع طلاب پایه",
+  "description": "سیستم جامع مدیریت آموزشی، پژوهشی و انضباطی طلاب با تحلیل هوشمند هوش مصنوعی",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
