@@ -15,6 +15,8 @@ import { cn } from '../lib/utils';
 interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
+  isOpen: boolean;
+  onToggle: () => void;
 }
 
 const menuItems = [
@@ -28,9 +30,15 @@ const menuItems = [
   { id: 'summary', label: 'جمع‌بندی و هوش مصنوعی', icon: BrainCircuit },
 ];
 
-export default function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
+export default function Sidebar({ activeTab, setActiveTab, isOpen }: SidebarProps) {
   return (
-    <div className="w-64 bg-white border-l border-slate-200 h-screen fixed right-0 top-0 flex flex-col flex-shrink-0 z-20" dir="rtl">
+    <div 
+      className={cn(
+        "w-64 bg-white border-l border-slate-200 h-screen fixed right-0 top-0 flex flex-col flex-shrink-0 z-40 transition-all duration-300 transform",
+        isOpen ? "translate-x-0" : "translate-x-full"
+      )} 
+      dir="rtl"
+    >
       <div className="p-6 border-b border-slate-100 flex items-center gap-3">
         <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold shrink-0">ت</div>
         <h1 className="text-lg font-bold text-slate-800 truncate">مدیریت طلاب</h1>

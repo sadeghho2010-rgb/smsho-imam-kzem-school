@@ -7,7 +7,9 @@ import {
   Edit2, 
   CheckCircle, 
   XCircle,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Settings2,
+  ChevronDown
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { collection, addDoc, getDocs, updateDoc, doc, deleteDoc, query, where } from 'firebase/firestore';
@@ -38,6 +40,40 @@ export default function StudentList({ onlyActive = false }: { onlyActive?: boole
     levelOneSchool: '',
     tammomStatus: 'غیر معمم'
   });
+
+  const [showColumnFilter, setShowColumnFilter] = useState(false);
+  const [visibleColumns, setVisibleColumns] = useState<string[]>([
+    'index', 'grade', 'name', 'nationalId', 'isActive', 'actions'
+  ]);
+
+  const allColumns = [
+    { id: 'index', label: '#' },
+    { id: 'grade', label: 'پایه تحصیلی' },
+    { id: 'name', label: 'نام و نام خانوادگی' },
+    { id: 'nationalId', label: 'کد ملی' },
+    { id: 'phoneNumber', label: 'شماره تماس' },
+    { id: 'fatherOccupation', label: 'شغل پدر' },
+    { id: 'birthPlace', label: 'اهل کجاست' },
+    { id: 'birthDate', label: 'تاریخ تولد' },
+    { id: 'maritalStatus', label: 'وضعیت تاهل' },
+    { id: 'livingStatus', label: 'سکونت' },
+    { id: 'classicEducation', label: 'تحصیلات کلاسیک' },
+    { id: 'howzaEntryYear', label: 'سال ورود به حوزه' },
+    { id: 'levelOneSchool', label: 'مدرسه سطح یک' },
+    { id: 'tammomStatus', label: 'وضعیت تعمم' },
+    { id: 'isActive', label: 'وضعیت' },
+    { id: 'actions', label: 'عملیات' },
+  ];
+
+  const toggleColumn = (columnId: string) => {
+    if (visibleColumns.includes(columnId)) {
+      if (visibleColumns.length > 1) {
+        setVisibleColumns(visibleColumns.filter(id => id !== columnId));
+      }
+    } else {
+      setVisibleColumns([...visibleColumns, columnId]);
+    }
+  };
 
   const fetchStudents = async () => {
     setLoading(true);
@@ -176,6 +212,7 @@ export default function StudentList({ onlyActive = false }: { onlyActive?: boole
     }));
 
     const ws = XLSX.utils.json_to_sheet(exportData);
+    ws['!dir'] = 'rtl'; // Set RTL direction for the worksheet
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "طلاب");
     XLSX.writeFile(wb, `لیست_طلاب_${new Date().toLocaleDateString('fa-IR').replace(/\//g, '-')}.xlsx`);
@@ -275,78 +312,160 @@ export default function StudentList({ onlyActive = false }: { onlyActive?: boole
               </label>
             </>
           )}
+
+          <div className="relative">
+            <button 
+              onClick={() => setShowColumnFilter(!showColumnFilter)}
+              className="flex items-center gap-2 px-4 py-2 border border-slate-200 bg-white text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-50 transition-colors shadow-sm"
+            >
+              <Settings2 size={16} />
+              <span>فیلتر ستون‌ها</span>
+              <ChevronDown size={14} className={cn("transition-transform", showColumnFilter && "rotate-180")} />
+            </button>
+
+            <AnimatePresence>
+              {showColumnFilter && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  className="absolute left-0 top-full mt-2 w-56 bg-white border border-slate-200 rounded-xl shadow-xl z-30 p-2 overflow-hidden"
+                >
+                  <div className="max-h-[300px] overflow-y-auto pr-1">
+                    {allColumns.map(col => (
+                      <label key={col.id} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors">
+                        <input 
+                          type="checkbox" 
+                          className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300"
+                          checked={visibleColumns.includes(col.id)}
+                          onChange={() => toggleColumn(col.id)}
+                        />
+                        <span className="text-[11px] font-bold text-slate-600">{col.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <table className="w-full text-right border-collapse">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
+        <table className="w-full text-right border-collapse min-w-max">
           <thead>
             <tr className="bg-slate-50 text-slate-500 border-b border-slate-100">
-              <th className="px-6 py-3 text-[11px] font-bold uppercase tracking-wider">#</th>
-              <th className="px-6 py-3 text-[11px] font-bold uppercase tracking-wider">پایه تحصیلی</th>
-              <th className="px-6 py-3 text-[11px] font-bold uppercase tracking-wider">نام و نام خانوادگی</th>
-              <th className="px-6 py-3 text-[11px] font-bold uppercase tracking-wider">کد ملی</th>
-              <th className="px-6 py-3 text-[11px] font-bold uppercase tracking-wider">وضعیت</th>
-              <th className="px-6 py-3 text-[11px] font-bold uppercase tracking-wider text-left">عملیات</th>
+              {allColumns.filter(c => visibleColumns.includes(c.id)).map(col => (
+                <th key={col.id} className={cn(
+                  "px-6 py-3 text-[11px] font-bold uppercase tracking-wider",
+                  col.id === 'actions' && "text-left"
+                )}>
+                  {col.label}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {loading ? (
               <tr>
-                <td colSpan={6} className="px-6 py-12 text-center text-slate-400 text-xs">در حال بارگذاری...</td>
+                <td colSpan={visibleColumns.length} className="px-6 py-12 text-center text-slate-400 text-xs">در حال بارگذاری...</td>
               </tr>
             ) : filteredStudents.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-6 py-12 text-center text-slate-400 text-xs italic">هیچ طلبی یافت نشد</td>
+                <td colSpan={visibleColumns.length} className="px-6 py-12 text-center text-slate-400 text-xs italic">هیچ طلبی یافت نشد</td>
               </tr>
             ) : (
               filteredStudents.map((student, index) => (
                 <tr key={student.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-6 py-4 text-xs font-bold text-slate-400">
-                    {index + 1}
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[10px] rounded-full border border-slate-200">
-                      {student.grade || 'نامشخص'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex flex-col">
-                      <span className="font-bold text-slate-800 text-sm">{student.name}</span>
-                      <span className="text-[10px] text-slate-400">{student.phoneNumber || 'بدون شماره'}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-xs text-slate-600">{student.nationalId || '---'}</td>
-                  <td className="px-6 py-4">
-                    <button 
-                      onClick={() => toggleActive(student.id, student.isActive)}
-                      className={cn(
-                        "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold transition-all",
-                        student.isActive 
-                          ? "bg-emerald-50 text-emerald-700 border border-emerald-100" 
-                          : "bg-slate-50 text-slate-400 border border-slate-100"
-                      )}
-                    >
-                      <div className={cn("w-1.5 h-1.5 rounded-full", student.isActive ? "bg-emerald-500" : "bg-slate-300")}></div>
-                      {student.isActive ? 'فعال' : 'غیرفعال'}
-                    </button>
-                  </td>
-                  <td className="px-6 py-4 text-left">
-                    <div className="flex items-center justify-end gap-1">
+                  {visibleColumns.includes('index') && (
+                    <td className="px-6 py-4 text-xs font-bold text-slate-400">{index + 1}</td>
+                  )}
+                  {visibleColumns.includes('grade') && (
+                    <td className="px-6 py-4">
+                      <span className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[10px] rounded-full border border-slate-200">
+                        {student.grade || 'نامشخص'}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.includes('name') && (
+                    <td className="px-6 py-4">
+                      <div className="flex flex-col">
+                        <span className="font-bold text-slate-800 text-sm">{student.name}</span>
+                        {!visibleColumns.includes('phoneNumber') && (
+                          <span className="text-[10px] text-slate-400">{student.phoneNumber || 'بدون شماره'}</span>
+                        )}
+                      </div>
+                    </td>
+                  )}
+                  {visibleColumns.includes('nationalId') && (
+                    <td className="px-6 py-4 text-xs text-slate-600">{student.nationalId || '---'}</td>
+                  )}
+                  {visibleColumns.includes('phoneNumber') && (
+                    <td className="px-6 py-4 text-xs text-slate-600">{student.phoneNumber || '---'}</td>
+                  )}
+                  {visibleColumns.includes('fatherOccupation') && (
+                    <td className="px-6 py-4 text-xs text-slate-600">{student.fatherOccupation || '---'}</td>
+                  )}
+                  {visibleColumns.includes('birthPlace') && (
+                    <td className="px-6 py-4 text-xs text-slate-600">{student.birthPlace || '---'}</td>
+                  )}
+                  {visibleColumns.includes('birthDate') && (
+                    <td className="px-6 py-4 text-xs text-slate-600">{student.birthDate || '---'}</td>
+                  )}
+                  {visibleColumns.includes('maritalStatus') && (
+                    <td className="px-6 py-4 text-xs text-slate-600">{student.maritalStatus || '---'}</td>
+                  )}
+                  {visibleColumns.includes('livingStatus') && (
+                    <td className="px-6 py-4 text-xs text-slate-600">
+                      {student.livingStatus}{student.livingStatus === 'سایر' && student.livingStatusOther ? ` (${student.livingStatusOther})` : ''}
+                    </td>
+                  )}
+                  {visibleColumns.includes('classicEducation') && (
+                    <td className="px-6 py-4 text-xs text-slate-600">{student.classicEducation || '---'}</td>
+                  )}
+                  {visibleColumns.includes('howzaEntryYear') && (
+                    <td className="px-6 py-4 text-xs text-slate-600">{student.howzaEntryYear || '---'}</td>
+                  )}
+                  {visibleColumns.includes('levelOneSchool') && (
+                    <td className="px-6 py-4 text-xs text-slate-600">{student.levelOneSchool || '---'}</td>
+                  )}
+                  {visibleColumns.includes('tammomStatus') && (
+                    <td className="px-6 py-4 text-xs text-slate-600">{student.tammomStatus || '---'}</td>
+                  )}
+                  {visibleColumns.includes('isActive') && (
+                    <td className="px-6 py-4">
                       <button 
-                        onClick={() => handleEdit(student)}
-                        className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                        onClick={() => toggleActive(student.id, student.isActive)}
+                        className={cn(
+                          "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold transition-all",
+                          student.isActive 
+                            ? "bg-emerald-50 text-emerald-700 border border-emerald-100" 
+                            : "bg-slate-50 text-slate-400 border border-slate-100"
+                        )}
                       >
-                        <Edit2 size={14} />
+                        <div className={cn("w-1.5 h-1.5 rounded-full", student.isActive ? "bg-emerald-500" : "bg-slate-300")}></div>
+                        {student.isActive ? 'فعال' : 'غیرفعال'}
                       </button>
-                      <button 
-                        onClick={() => deleteStudent(student.id)}
-                        className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </td>
+                    </td>
+                  )}
+                  {visibleColumns.includes('actions') && (
+                    <td className="px-6 py-4 text-left">
+                      <div className="flex items-center justify-end gap-1">
+                        <button 
+                          onClick={() => handleEdit(student)}
+                          className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                        >
+                          <Edit2 size={14} />
+                        </button>
+                        <button 
+                          onClick={() => deleteStudent(student.id)}
+                          className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))
             )}
