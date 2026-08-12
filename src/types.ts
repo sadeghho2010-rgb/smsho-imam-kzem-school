@@ -50,6 +50,8 @@ export interface ResearchRecord {
   criticNotes?: string;
   score?: string;
   usages?: string[];
+  needsFollowUp?: boolean;
+  followUpTodoId?: string;
   updatedAt: string;
 }
 
@@ -82,4 +84,24 @@ export interface Todo {
   title: string;
   completed: boolean;
   dueDate?: string;
+  isResearchFollowUp?: boolean;
+  isStudyFollowUp?: boolean;
+  researchRecordId?: string;
+  createdAt?: string;
+}
+
+export interface StudyPeriod {
+  id: string;
+  title: string;
+  startDate: string;
+  endDate: string;
+  mandatoryHours: number;
+  createdAt: string;
+}
+
+export interface PeriodicStudyLog {
+  id: string;
+  periodId: string;
+  studentId: string;
+  hours: number;
 }

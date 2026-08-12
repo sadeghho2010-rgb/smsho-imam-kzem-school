@@ -9,6 +9,7 @@ import StudentList from './components/StudentList';
 import Programs from './components/Programs';
 import ResearchAndFeedback from './components/ResearchAndFeedback';
 import AttendanceAndStats from './components/AttendanceAndStats';
+import StudyStats from './components/StudyStats';
 import Summary from './components/Summary';
 import TodoList from './components/TodoList';
 import { motion, AnimatePresence } from 'motion/react';
@@ -38,7 +39,7 @@ export default function App() {
       case 'attendance':
         return <AttendanceAndStats />;
       case 'stats':
-        return <AttendanceAndStats />; // Unified view
+        return <StudyStats />;
       case 'todos':
         return <TodoList />;
       case 'summary':
@@ -58,7 +59,7 @@ export default function App() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => setIsSidebarOpen(false)}
-            className="fixed inset-0 bg-black/20 backdrop-blur-sm z-30"
+            className="fixed inset-0 bg-[#00000033] backdrop-blur-sm z-30"
           />
         )}
       </AnimatePresence>
@@ -83,13 +84,13 @@ export default function App() {
               {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
             </button>
             <h2 className="text-sm font-bold text-slate-800">
-              {activeTab === 'students' ? 'مدیریت کل کاربران' :
+              {activeTab === 'todos' ? 'پیگیری‌ها' :
+               activeTab === 'students' ? 'مدیریت کل کاربران' :
                activeTab === 'active-students' ? 'لیست کاربران فعال' :
                activeTab === 'programs' ? 'برنامه‌های آموزشی' :
                activeTab === 'research' ? 'بخش پژوهش و مقالات' :
                activeTab === 'attendance' ? 'حضور و غیاب' :
-               activeTab === 'stats' ? 'آمار و گزارشات' :
-               activeTab === 'todos' ? 'امور پیگیری' : 'جمع‌بندی نهایی'}
+               activeTab === 'stats' ? 'آمار و گزارشات' : 'جمع‌بندی نهایی'}
             </h2>
           </div>
           <div className="flex items-center gap-3">

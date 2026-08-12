@@ -149,7 +149,7 @@ export default function Programs() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {Object.entries(typesMap).map(([type, label]) => (
           <div key={type} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
-            <div className="bg-slate-50/50 px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+            <div className="bg-[#f8fafc80] px-5 py-3 border-b border-slate-100 flex items-center justify-between">
               <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                 <div className="w-1.5 h-6 bg-indigo-500 rounded-full"></div>
                 {label}
@@ -160,7 +160,7 @@ export default function Programs() {
             </div>
             <div className="divide-y divide-slate-100 flex-1">
               {programs.filter(p => p.type === type).map(program => (
-                <div key={program.id} className="p-5 hover:bg-slate-50/50 transition-colors border-b last:border-0">
+                <div key={program.id} className="p-5 hover:bg-[#f8fafc80] transition-colors border-b last:border-0">
                   <div className="flex items-start justify-between cursor-pointer" onClick={() => setSelectedProgramId(selectedProgramId === program.id ? null : program.id)}>
                     <div className="flex-1">
                       <h4 className="font-bold text-slate-900 text-sm mb-1">{program.title}</h4>
@@ -223,7 +223,7 @@ export default function Programs() {
 
       <AnimatePresence>
         {showAddModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="fixed inset-0 bg-[#00000080] flex items-center justify-center z-50 p-4">
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -308,7 +308,7 @@ export default function Programs() {
         )}
 
         {showEnrollModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="fixed inset-0 bg-[#00000080] flex items-center justify-center z-50 p-4">
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}

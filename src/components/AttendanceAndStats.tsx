@@ -133,7 +133,7 @@ export default function AttendanceAndStats() {
             <div className="space-y-2 flex-1 overflow-y-auto pr-1">
               <h4 className="text-[10px] font-bold text-slate-400 mb-3 uppercase tracking-wider">سوابق انضباطی اخیر</h4>
               {attendances.map(a => (
-                <div key={a.id} className="p-3 bg-slate-50/50 rounded-xl flex items-center justify-between border border-slate-100">
+                <div key={a.id} className="p-3 bg-[#f8fafc80] rounded-xl flex items-center justify-between border border-slate-100">
                   <div className="flex items-center gap-4">
                     <span className="text-[11px] text-slate-500 font-bold">{new Date(a.date).toLocaleDateString('fa-IR')}</span>
                     <span className={cn(
@@ -163,7 +163,7 @@ export default function AttendanceAndStats() {
             </div>
 
             <div className="grid grid-cols-2 gap-4 mb-8">
-              <div className="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 text-center">
+              <div className="p-4 bg-[#eef2ff80] rounded-xl border border-indigo-100 text-center">
                 <p className="text-[9px] text-indigo-500 font-bold mb-1 uppercase tracking-wider">مطالعه کل</p>
                 <h4 className="text-xl font-black text-indigo-800">{stats.reduce((acc, s) => acc + s.studyHours, 0)} <span className="text-[10px] font-normal">ساعت</span></h4>
               </div>
@@ -175,7 +175,7 @@ export default function AttendanceAndStats() {
 
             <div className="space-y-2 flex-1 overflow-y-auto pr-1">
               {stats.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 10).map(s => (
-                <div key={s.id} className="p-3 bg-slate-50/50 rounded-xl flex items-center justify-between border border-slate-100">
+                <div key={s.id} className="p-3 bg-[#f8fafc80] rounded-xl flex items-center justify-between border border-slate-100">
                   <span className="text-[11px] font-bold text-slate-500">{new Date(s.date).toLocaleDateString('fa-IR')}</span>
                   <div className="flex gap-4 text-[10px] font-bold">
                     <span className="text-indigo-600">مطالعه: {s.studyHours}h</span>

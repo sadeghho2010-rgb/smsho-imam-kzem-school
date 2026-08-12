@@ -20,13 +20,13 @@ interface SidebarProps {
 }
 
 const menuItems = [
+  { id: 'todos', label: 'پیگیری‌ها', icon: GraduationCap },
   { id: 'students', label: 'همه کاربران', icon: Users },
   { id: 'active-students', label: 'کاربران فعال', icon: UserCheck },
   { id: 'programs', label: 'برنامه‌های مدرسه', icon: Calendar },
+  { id: 'stats', label: 'آمار مطالعه', icon: BarChart2 },
   { id: 'research', label: 'بخش پژوهش', icon: BookOpen },
   { id: 'attendance', label: 'حضور و غیاب', icon: CheckSquare },
-  { id: 'stats', label: 'آمار مطالعه', icon: BarChart2 },
-  { id: 'todos', label: 'امور پیگیری', icon: GraduationCap },
   { id: 'summary', label: 'جمع‌بندی و هوش مصنوعی', icon: BrainCircuit },
 ];
 
