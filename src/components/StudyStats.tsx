@@ -643,7 +643,7 @@ export default function StudyStats({ initialStudentId }: StudyStatsProps = {}) {
     const items = sorted.map((s, idx) => {
       let displayVal = '';
       if (type === 'highest' || type === 'lowest') {
-        displayVal = `${s.totalHours} ساعت (${s.activeCount} دوره)`;
+        displayVal = `${Math.round(s.totalHours * 60).toLocaleString('fa-IR')} دقیقه (${s.activeCount} دوره)`;
       } else if (type === 'improved') {
         const g = getGrowth(s.id, growthRange);
         displayVal = `${g > 0 ? '+' : ''}${g.toFixed(1)}%`;
@@ -684,9 +684,9 @@ export default function StudyStats({ initialStudentId }: StudyStatsProps = {}) {
 
       return {
         name: p.title,
-        hours: hours,
-        mandatory: p.mandatoryHours,
-        average: parseFloat(avg.toFixed(1)),
+        hours: Math.round((hours || 0) * 60),
+        mandatory: Math.round((p.mandatoryHours || 0) * 60),
+        average: Math.round((avg || 0) * 60),
         adjustedIndex: adjustedIndex,
         perfRatio: parseFloat(perfRatio.toFixed(1)),
         relRatio: parseFloat(relRatio.toFixed(1))
@@ -1070,10 +1070,10 @@ export default function StudyStats({ initialStudentId }: StudyStatsProps = {}) {
                     <thead>
                       <tr className="bg-slate-50/50 border-b border-slate-100">
                         <th className="px-5 py-4 text-[10px] font-black text-slate-400 uppercase">نام طلبه</th>
-                        {allCols.totalHours && <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase text-center">مجموع ساعات</th>}
+                        {allCols.totalHours && <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase text-center">مجموع (دقیقه)</th>}
                         {allCols.activeCount && <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase text-center">دوره مشارکتی</th>}
-                        {allCols.avg && <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase text-center">میانگین هر دوره</th>}
-                        {allCols.avgDev && <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase text-center">میانگین انحراف از پایه</th>}
+                        {allCols.avg && <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase text-center">میانگین هر دوره (دقیقه)</th>}
+                        {allCols.avgDev && <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase text-center">میانگین انحراف از پایه (دقیقه)</th>}
                         {allCols.consistency && <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase text-center">ثبات ثبت (%)</th>}
                       </tr>
                     </thead>
@@ -1109,7 +1109,7 @@ export default function StudyStats({ initialStudentId }: StudyStatsProps = {}) {
                             </td>
                             {allCols.totalHours && (
                               <td className="px-4 py-4 text-center">
-                                <span className="text-sm font-black text-slate-800">{s.totalHours}</span>
+                                <span className="text-sm font-black text-slate-800">{Math.round((s.totalHours || 0) * 60).toLocaleString('fa-IR')}</span>
                               </td>
                             )}
                             {allCols.activeCount && (
@@ -1119,7 +1119,7 @@ export default function StudyStats({ initialStudentId }: StudyStatsProps = {}) {
                             )}
                             {allCols.avg && (
                               <td className="px-4 py-4 text-center">
-                                <span className="text-xs font-black text-indigo-600">{s.avg.toFixed(1)} h</span>
+                                <span className="text-xs font-black text-indigo-600">{Math.round((s.avg || 0) * 60).toLocaleString('fa-IR')} د</span>
                               </td>
                             )}
                             {allCols.avgDev && (
@@ -1128,7 +1128,7 @@ export default function StudyStats({ initialStudentId }: StudyStatsProps = {}) {
                                   "inline-flex items-center gap-0.5 font-bold text-[10px]",
                                   s.avgDev >= 0 ? "text-emerald-600" : "text-rose-600"
                                 )}>
-                                  {s.avgDev > 0 ? '+' : ''}{s.avgDev.toFixed(1)} h
+                                  {s.avgDev > 0 ? '+' : ''}{Math.round((s.avgDev || 0) * 60).toLocaleString('fa-IR')} د
                                 </span>
                               </td>
                             )}
@@ -1657,7 +1657,7 @@ export default function StudyStats({ initialStudentId }: StudyStatsProps = {}) {
                     آقای <span className="text-emerald-600">{highestTotalStudent?.name || '---'}</span>
                   </p>
                   <p className="text-xs text-slate-500 font-medium">
-                    با ثبت کل <span className="font-black text-slate-800 text-sm">{highestTotalStudent?.totalHours || 0}</span> ساعت مطالعه
+                    با ثبت کل <span className="font-black text-slate-800 text-sm">{Math.round((highestTotalStudent?.totalHours || 0) * 60).toLocaleString('fa-IR')}</span> دقیقه مطالعه
                   </p>
                 </div>
                 <button
@@ -1679,7 +1679,7 @@ export default function StudyStats({ initialStudentId }: StudyStatsProps = {}) {
                     آقای <span className="text-rose-600">{lowestTotalStudent?.name || '---'}</span>
                   </p>
                   <p className="text-xs text-slate-500 font-medium">
-                    با ثبت مجموع <span className="font-black text-slate-800 text-sm">{lowestTotalStudent?.totalHours || 0}</span> ساعت
+                    با ثبت مجموع <span className="font-black text-slate-800 text-sm">{Math.round((lowestTotalStudent?.totalHours || 0) * 60).toLocaleString('fa-IR')}</span> دقیقه
                   </p>
                 </div>
                 <button
@@ -1818,7 +1818,7 @@ export default function StudyStats({ initialStudentId }: StudyStatsProps = {}) {
                             chartMode === 'raw' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500"
                           )}
                         >
-                          ساعت مطالعه واقعی
+                          دقیقه مطالعه واقعی
                         </button>
                         <button
                           onClick={() => setChartMode('adjusted')}
@@ -1852,14 +1852,14 @@ export default function StudyStats({ initialStudentId }: StudyStatsProps = {}) {
                             "text-base font-black",
                             selectedStudentSummary.avgDev >= 0 ? "text-emerald-600" : "text-rose-600"
                           )}>
-                            {selectedStudentSummary.avgDev > 0 ? '+' : ''}{selectedStudentSummary.avgDev.toFixed(1)} <span className="text-xs font-normal text-slate-400">ساعت/دوره</span>
+                            {selectedStudentSummary.avgDev > 0 ? '+' : ''}{Math.round((selectedStudentSummary.avgDev || 0) * 60).toLocaleString('fa-IR')} <span className="text-xs font-normal text-slate-400">دقیقه/دوره</span>
                           </p>
                         </div>
 
                         <div className="space-y-1">
-                          <p className="text-[10px] font-bold text-slate-400">میانگین ساعات مطالعه طلبه:</p>
+                          <p className="text-[10px] font-bold text-slate-400">میانگین مطالعه طلبه:</p>
                           <p className="text-base font-black text-indigo-600">
-                            {selectedStudentSummary.avg.toFixed(1)} <span className="text-xs font-normal text-slate-400">ساعت</span>
+                            {Math.round((selectedStudentSummary.avg || 0) * 60).toLocaleString('fa-IR')} <span className="text-xs font-normal text-slate-400">دقیقه</span>
                           </p>
                         </div>
                       </div>
@@ -1919,7 +1919,7 @@ export default function StudyStats({ initialStudentId }: StudyStatsProps = {}) {
                               wrapperStyle={{ paddingBottom: '20px', fontSize: '11px', fontWeight: 700 }}
                             />
                             <Line 
-                              name={`ساعت مطالعه ${students.find(s => s.id === selectedStudentId)?.name}`}
+                              name={`دقایق مطالعه ${students.find(s => s.id === selectedStudentId)?.name}`}
                               type="monotone" 
                               dataKey="hours" 
                               stroke="#6366f1" 
@@ -1940,7 +1940,7 @@ export default function StudyStats({ initialStudentId }: StudyStatsProps = {}) {
                             )}
                             {showMandatoryOnChart && (
                               <Line 
-                                name="ساعت موظفی"
+                                name="دقیقه موظفی"
                                 type="stepAfter" 
                                 dataKey="mandatory" 
                                 stroke="#0f172a" 
