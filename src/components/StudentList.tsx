@@ -9,7 +9,8 @@ import {
   XCircle,
   FileSpreadsheet,
   Settings2,
-  ChevronDown
+  ChevronDown,
+  User
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { collection, addDoc, getDocs, updateDoc, doc, deleteDoc, query, where } from 'firebase/firestore';
@@ -18,10 +19,24 @@ import { Student } from '../types';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 
-export default function StudentList({ onlyActive = false }: { onlyActive?: boolean }) {
+interface StudentListProps {
+  onlyActive?: boolean;
+  initialStudentId?: string;
+}
+
+export default function StudentList({ onlyActive = false, initialStudentId }: StudentListProps) {
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+
+  useEffect(() => {
+    if (initialStudentId && students.length > 0) {
+      const found = students.find(s => s.id === initialStudentId);
+      if (found) {
+        setSearchTerm(found.name);
+      }
+    }
+  }, [initialStudentId, students]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [newStudent, setNewStudent] = useState<Partial<Student>>({ 
@@ -42,6 +57,7 @@ export default function StudentList({ onlyActive = false }: { onlyActive?: boole
   });
 
   const [showColumnFilter, setShowColumnFilter] = useState(false);
+  const [studentToDelete, setStudentToDelete] = useState<Student | null>(null);
   const [visibleColumns, setVisibleColumns] = useState<string[]>([
     'index', 'grade', 'name', 'nationalId', 'isActive', 'actions'
   ]);
@@ -140,9 +156,50 @@ export default function StudentList({ onlyActive = false }: { onlyActive?: boole
     }
   };
 
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 300;
+        const MAX_HEIGHT = 300;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+          setNewStudent(prev => ({ ...prev, photoUrl: dataUrl }));
+        }
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
   const resetForm = () => {
     setNewStudent({ 
       name: '', 
+      photoUrl: '',
       nationalId: '', 
       phoneNumber: '', 
       grade: '',
@@ -175,11 +232,15 @@ export default function StudentList({ onlyActive = false }: { onlyActive?: boole
     }
   };
 
-  const deleteStudent = async (id: string) => {
-    if (!window.confirm("آیا از حذف این مورد اطمینان دارید؟")) return;
+  const deleteStudent = (student: Student) => {
+    setStudentToDelete(student);
+  };
+
+  const confirmDeleteStudent = async () => {
+    if (!studentToDelete) return;
     try {
-      await deleteDoc(doc(db, 'students', id));
-      alert('مورد با موفقیت حذف شد');
+      await deleteDoc(doc(db, 'students', studentToDelete.id));
+      setStudentToDelete(null);
       fetchStudents();
     } catch (error: any) {
       console.error("Error deleting student:", error);
@@ -389,11 +450,24 @@ export default function StudentList({ onlyActive = false }: { onlyActive?: boole
                   )}
                   {visibleColumns.includes('name') && (
                     <td className="px-6 py-4">
-                      <div className="flex flex-col">
-                        <span className="font-bold text-slate-800 text-sm">{student.name}</span>
-                        {!visibleColumns.includes('phoneNumber') && (
-                          <span className="text-[10px] text-slate-400">{student.phoneNumber || 'بدون شماره'}</span>
+                      <div className="flex items-center gap-3">
+                        {student.photoUrl ? (
+                          <img 
+                            src={student.photoUrl} 
+                            alt={student.name} 
+                            className="w-9 h-9 rounded-full object-cover border-2 border-indigo-100 shadow-sm shrink-0" 
+                          />
+                        ) : (
+                          <div className="w-9 h-9 rounded-full bg-indigo-50 border border-indigo-100 flex items-center justify-center shrink-0 text-indigo-400">
+                            <User size={18} />
+                          </div>
                         )}
+                        <div className="flex flex-col">
+                          <span className="font-bold text-slate-800 text-sm">{student.name}</span>
+                          {!visibleColumns.includes('phoneNumber') && (
+                            <span className="text-[10px] text-slate-400">{student.phoneNumber || 'بدون شماره'}</span>
+                          )}
+                        </div>
                       </div>
                     </td>
                   )}
@@ -458,8 +532,9 @@ export default function StudentList({ onlyActive = false }: { onlyActive?: boole
                           <Edit2 size={14} />
                         </button>
                         <button 
-                          onClick={() => deleteStudent(student.id)}
+                          onClick={() => deleteStudent(student)}
                           className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                          title="حذف کاربر"
                         >
                           <Trash2 size={14} />
                         </button>
@@ -495,7 +570,40 @@ export default function StudentList({ onlyActive = false }: { onlyActive?: boole
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {/* Basic Info */}
                   <div className="space-y-4 col-span-full">
-                    <h4 className="text-xs font-bold text-indigo-600 uppercase tracking-wider border-b border-indigo-50 pb-1">اطلاعات پایه</h4>
+                    <h4 className="text-xs font-bold text-indigo-600 uppercase tracking-wider border-b border-indigo-50 pb-1">اطلاعات پایه و عکس پرسنلی</h4>
+                  </div>
+
+                  {/* Photo Upload Section */}
+                  <div className="col-span-full bg-indigo-50/40 p-4 rounded-xl border border-indigo-100 flex flex-col md:flex-row items-center gap-4">
+                    <div className="relative w-20 h-20 rounded-2xl overflow-hidden bg-white border-2 border-indigo-200 shadow-md flex items-center justify-center shrink-0">
+                      {newStudent.photoUrl ? (
+                        <img src={newStudent.photoUrl} alt="تصویر طلبه" className="w-full h-full object-cover" />
+                      ) : (
+                        <User size={36} className="text-indigo-300" />
+                      )}
+                    </div>
+                    <div className="flex-1 space-y-2 text-center md:text-right">
+                      <div className="flex flex-wrap items-center justify-center md:justify-start gap-2">
+                        <label className="cursor-pointer px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm">
+                          <Upload size={14} />
+                          <span>انتخاب و آپلود عکس طلبه</span>
+                          <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
+                        </label>
+                        {newStudent.photoUrl && (
+                          <button
+                            type="button"
+                            onClick={() => setNewStudent(prev => ({ ...prev, photoUrl: '' }))}
+                            className="px-3 py-1.5 text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-xl text-xs font-bold transition-colors flex items-center gap-1"
+                          >
+                            <Trash2 size={13} />
+                            <span>حذف عکس</span>
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500">
+                        عکس انتخاب‌شده به تصویر پرسنلی طلبه اختصاص می‌یابد و در کلیه گزارش‌ها و صفحات نمایش داده می‌شود.
+                      </p>
+                    </div>
                   </div>
                   
                   <div>
@@ -667,6 +775,46 @@ export default function StudentList({ onlyActive = false }: { onlyActive?: boole
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      {/* Delete Confirmation Modal */}
+      <AnimatePresence>
+        {studentToDelete && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl border border-slate-100"
+              dir="rtl"
+            >
+              <div className="flex items-center gap-3 text-rose-600">
+                <div className="p-2.5 bg-rose-50 rounded-xl">
+                  <Trash2 size={22} />
+                </div>
+                <h3 className="text-base font-bold text-slate-800">تایید حذف کاربر</h3>
+              </div>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                آیا از حذف <span className="font-bold text-slate-900">{studentToDelete.name}</span> اطمینان دارید؟ این عمل غیرقابل بازگشت است.
+              </p>
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setStudentToDelete(null)}
+                  className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-200 transition-colors"
+                >
+                  انصراف
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDeleteStudent}
+                  className="px-4 py-2 bg-rose-600 text-white rounded-xl text-xs font-bold hover:bg-rose-700 transition-colors shadow-md shadow-rose-200"
+                >
+                  حذف کاربر
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

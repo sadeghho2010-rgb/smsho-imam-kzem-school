@@ -95,21 +95,29 @@ export default function TodoList() {
       </div>
 
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-        <form onSubmit={handleAddTodo} className="flex gap-3 mb-6">
-          <input 
-            type="text" 
-            placeholder="مثلا: پیگیری غیبت‌های پایه دوم..."
-            className="flex-1 px-5 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-indigo-500 text-sm font-medium transition-all"
-            value={newTodo}
-            onChange={(e) => setNewTodo(e.target.value)}
-          />
-          <button 
-            type="submit"
-            className="px-6 py-3 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-all flex items-center gap-2 shadow-lg shadow-indigo-100"
-          >
-            <Plus size={18} />
-            <span>افزودن</span>
-          </button>
+        <form onSubmit={handleAddTodo} className="mb-6">
+          <div className="flex gap-3">
+            <input 
+              type="text" 
+              placeholder="مثلا: پیگیری غیبت‌های پایه دوم..."
+              className="flex-1 px-5 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-sm font-medium transition-all"
+              value={newTodo}
+              onChange={(e) => setNewTodo(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleAddTodo(e);
+                }
+              }}
+            />
+            <button 
+              type="submit"
+              className="px-6 py-3 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-all flex items-center gap-2 shadow-lg shadow-indigo-100 shrink-0"
+            >
+              <Plus size={18} />
+              <span>ENTER</span>
+            </button>
+          </div>
         </form>
 
         {/* Filter Tabs */}

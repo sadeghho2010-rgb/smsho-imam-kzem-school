@@ -25,10 +25,21 @@ import { motion, AnimatePresence } from 'motion/react';
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
 
-export default function ResearchAndFeedback() {
+interface ResearchAndFeedbackProps {
+  initialStudentId?: string;
+}
+
+export default function ResearchAndFeedback({ initialStudentId }: ResearchAndFeedbackProps = {}) {
   const [students, setStudents] = useState<Student[]>([]);
-  const [selectedStudentId, setSelectedStudentId] = useState<string>('');
+  const [selectedStudentId, setSelectedStudentId] = useState<string>(initialStudentId || '');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (initialStudentId) {
+      setSelectedStudentId(initialStudentId);
+      fetchStudentDetails(initialStudentId);
+    }
+  }, [initialStudentId]);
   const [research, setResearch] = useState<ResearchRecord | null>(null);
   const [showTeamModal, setShowTeamModal] = useState(false);
   const [teamSearchTerm, setTeamSearchTerm] = useState('');
@@ -50,8 +61,12 @@ export default function ResearchAndFeedback() {
   const [newArchive, setNewArchive] = useState('');
   const [newUsage, setNewUsage] = useState('');
 
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const isFirstLoad = useRef(true);
+
   const fetchStudentDetails = async (studentId: string) => {
     setLoading(true);
+    isFirstLoad.current = true;
     try {
       const [rSnap, aSnap] = await Promise.all([
         getDocs(query(collection(db, 'research_records'), where('studentId', '==', studentId))),
@@ -230,17 +245,34 @@ export default function ResearchAndFeedback() {
         const { id, ...data } = updatedData;
         await updateDoc(doc(db, 'research_records', research.id), data);
       } else {
-        await addDoc(collection(db, 'research_records'), updatedData);
+        const docRef = await addDoc(collection(db, 'research_records'), updatedData);
+        setResearch(prev => prev ? { ...prev, id: docRef.id } : null);
       }
-      alert('اطلاعات پژوهش با موفقیت ذخیره شد');
-      fetchStudentDetails(selectedStudentId);
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2500);
     } catch (error) {
       console.error("Error saving research:", error);
-      alert('خطا در ذخیره اطلاعات');
+      setSaveStatus('idle');
     } finally {
       setLoading(false);
     }
   };
+
+  // Auto-save effect for research
+  useEffect(() => {
+    if (isFirstLoad.current) {
+      isFirstLoad.current = false;
+      return;
+    }
+    if (!research || !selectedStudentId) return;
+
+    setSaveStatus('saving');
+    const timer = setTimeout(() => {
+      saveResearchData();
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [research]);
 
   const deleteItem = async (col: string, id: string) => {
     if (!window.confirm("حذف شود؟")) return;
@@ -300,6 +332,27 @@ export default function ResearchAndFeedback() {
           {/* Research Section */}
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 h-fit space-y-8 col-span-2">
             <div>
+              {/* Selected Student Banner */}
+              {(() => {
+                const selStudent = students.find(s => s.id === selectedStudentId);
+                if (!selStudent) return null;
+                return (
+                  <div className="flex items-center gap-3 mb-6 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    <div className="w-12 h-12 rounded-xl bg-indigo-100 overflow-hidden shrink-0 border border-indigo-200 flex items-center justify-center font-black text-indigo-700">
+                      {selStudent.photoUrl ? (
+                        <img src={selStudent.photoUrl} alt={selStudent.name} className="w-full h-full object-cover" />
+                      ) : (
+                        selStudent.name.charAt(0)
+                      )}
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-black text-slate-800">{selStudent.name}</h3>
+                      <p className="text-[11px] text-slate-500 font-medium">پایه تحصیلی: {selStudent.grade || 'نامشخص'}</p>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <h3 className="text-sm font-bold text-slate-800 mb-5 flex items-center gap-2">
                 <div className="w-1.5 h-5 bg-emerald-500 rounded-full"></div>
                 جزئیات پژوهش و مقاله
@@ -333,14 +386,14 @@ export default function ResearchAndFeedback() {
                 <div>
                   <label className="block text-[11px] font-bold text-slate-400 mb-3">مرحله پژوهش</label>
                   <div className="flex flex-wrap gap-2">
-                    {['تعیین موضوع', 'طرح پژوهش', 'نگارش اولیه', 'ارزیابی', 'تکمیل شده'].map(s => (
+                    {['تعیین موضوع', 'طرح پژوهش', 'نگارش اولیه', 'ارزیابی', 'تاخیر دارد', 'تکمیل شده'].map(s => (
                       <button 
                         key={s}
                         onClick={() => updateResearchStage(s)}
                         className={cn(
                           "px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all border",
                           research?.stage === s 
-                            ? "bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-100" 
+                            ? (s === 'تاخیر دارد' ? "bg-rose-600 text-white border-rose-600 shadow-md shadow-rose-100" : "bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-100")
                             : "bg-white text-slate-500 border-slate-100 hover:bg-slate-50"
                         )}
                       >
@@ -495,12 +548,33 @@ export default function ResearchAndFeedback() {
                   </div>
                 </div>
 
-                <div className="flex justify-end">
+                <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                  <div className="flex items-center gap-2">
+                    {saveStatus === 'saving' && (
+                      <span className="text-xs text-amber-600 font-bold flex items-center gap-1.5 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-200">
+                        <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                        در حال ذخیره‌سازی خودکار...
+                      </span>
+                    )}
+                    {saveStatus === 'saved' && (
+                      <span className="text-xs text-emerald-600 font-bold flex items-center gap-1.5 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200">
+                        <CheckCircle size={14} />
+                        تغییرات به‌صورت خودکار ذخیره شد
+                      </span>
+                    )}
+                    {saveStatus === 'idle' && (
+                      <span className="text-[11px] text-slate-400 font-medium">
+                        ✓ کلیه تغییرات به‌صورت خودکار ذخیره می‌شوند.
+                      </span>
+                    )}
+                  </div>
+
                   <button 
+                    type="button"
                     onClick={saveResearchData}
-                    className="px-6 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+                    className="px-5 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100"
                   >
-                    ذخیره تغییرات پژوهش
+                    ذخیره فوری
                   </button>
                 </div>
               </div>

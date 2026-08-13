@@ -27,6 +27,7 @@ const menuItems = [
   { id: 'stats', label: 'آمار مطالعه', icon: BarChart2 },
   { id: 'research', label: 'بخش پژوهش', icon: BookOpen },
   { id: 'attendance', label: 'حضور و غیاب', icon: CheckSquare },
+  { id: 'comments', label: 'نظرات و صحبت‌ها', icon: MessageSquare },
   { id: 'summary', label: 'جمع‌بندی و هوش مصنوعی', icon: BrainCircuit },
 ];
 

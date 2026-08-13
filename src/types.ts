@@ -5,6 +5,7 @@ export type AttendanceStatus = 'present' | 'absent' | 'late';
 export interface Student {
   id: string;
   name: string;
+  photoUrl?: string;
   nationalId?: string;
   isActive: boolean;
   phoneNumber?: string;
@@ -104,4 +105,36 @@ export interface PeriodicStudyLog {
   periodId: string;
   studentId: string;
   hours: number;
+}
+
+export type CommentPriority = 'high' | 'medium' | 'low' | 'info';
+
+export type OralExamSubjectType = 'فقه' | 'اصول' | 'امتحان ورودی' | 'سایر';
+
+export interface OralExam {
+  id: string;
+  studentId: string;
+  title: string;
+  subjectType: OralExamSubjectType;
+  score: number;
+  examinerName: string;
+  date: string;
+  isRetake: boolean;
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface StudentComment {
+  id: string;
+  studentId: string;
+  authorName: string;
+  category?: 'علمی' | 'اخلاقی' | 'انضباطی' | 'مشاوره' | 'خانوادگی' | 'عمومی';
+  content: string;
+  priority: CommentPriority;
+  date: string;
+  needsFollowUp?: boolean;
+  followUpTodoId?: string;
+  createdAt: string;
+  updatedAt?: string;
 }

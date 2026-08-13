@@ -60,14 +60,24 @@ import {
   ReferenceLine
 } from 'recharts';
 
-export default function StudyStats() {
+interface StudyStatsProps {
+  initialStudentId?: string;
+}
+
+export default function StudyStats({ initialStudentId }: StudyStatsProps = {}) {
   const [students, setStudents] = useState<Student[]>([]);
   const [periods, setPeriods] = useState<StudyPeriod[]>([]);
   const [allLogs, setAllLogs] = useState<PeriodicStudyLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [showEntryModal, setShowEntryModal] = useState(false);
   const [selectedPeriodId, setSelectedPeriodId] = useState<string | null>(null);
-  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(initialStudentId || null);
+
+  useEffect(() => {
+    if (initialStudentId) {
+      setSelectedStudentId(initialStudentId);
+    }
+  }, [initialStudentId]);
   const [logs, setLogs] = useState<PeriodicStudyLog[]>([]);
   const [growthRange, setGrowthRange] = useState(3);
   const [dashRange, setDashRange] = useState<number>(0); // 0 = all periods, 3 = 3 recent, 5 = 5 recent, 10 = 10 recent
@@ -997,7 +1007,7 @@ export default function StudyStats() {
                               )}
                             >
                               {allCols.totalHours ? <Eye size={13} /> : <EyeOff size={13} />}
-                              <span>مجموع ساعات</span>
+                              <span>مجموع مطالعه (دقیقه)</span>
                             </button>
 
                             <button
@@ -1368,7 +1378,7 @@ export default function StudyStats() {
                               )}
                             >
                               {periodCols.hours ? <Eye size={13} /> : <EyeOff size={13} />}
-                              <span>ساعت مطالعه</span>
+                              <span>میزان مطالعه (دقیقه)</span>
                             </button>
 
                             <button

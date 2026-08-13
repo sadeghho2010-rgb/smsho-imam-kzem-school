@@ -12,12 +12,14 @@ import AttendanceAndStats from './components/AttendanceAndStats';
 import StudyStats from './components/StudyStats';
 import Summary from './components/Summary';
 import TodoList from './components/TodoList';
+import StudentComments from './components/StudentComments';
 import { motion, AnimatePresence } from 'motion/react';
 import { Menu, X } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('students');
+  const [activeTab, setActiveTab] = useState('todos');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [selectedStudentIdForTab, setSelectedStudentIdForTab] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     // Open sidebar by default on large screens
@@ -26,26 +28,35 @@ export default function App() {
     }
   }, []);
 
+  const handleNavigate = (tab: string, studentId?: string) => {
+    if (studentId) {
+      setSelectedStudentIdForTab(studentId);
+    }
+    setActiveTab(tab);
+  };
+
   const renderContent = () => {
     switch (activeTab) {
       case 'students':
-        return <StudentList />;
+        return <StudentList initialStudentId={selectedStudentIdForTab} />;
       case 'active-students':
-        return <StudentList onlyActive />;
+        return <StudentList onlyActive initialStudentId={selectedStudentIdForTab} />;
       case 'programs':
         return <Programs />;
       case 'research':
-        return <ResearchAndFeedback />;
+        return <ResearchAndFeedback initialStudentId={selectedStudentIdForTab} />;
       case 'attendance':
         return <AttendanceAndStats />;
+      case 'comments':
+        return <StudentComments initialStudentId={selectedStudentIdForTab} />;
       case 'stats':
-        return <StudyStats />;
+        return <StudyStats initialStudentId={selectedStudentIdForTab} />;
       case 'todos':
         return <TodoList />;
       case 'summary':
-        return <Summary />;
+        return <Summary onNavigate={handleNavigate} initialStudentId={selectedStudentIdForTab} />;
       default:
-        return <StudentList />;
+        return <TodoList />;
     }
   };
 
@@ -90,6 +101,7 @@ export default function App() {
                activeTab === 'programs' ? 'برنامه‌های آموزشی' :
                activeTab === 'research' ? 'بخش پژوهش و مقالات' :
                activeTab === 'attendance' ? 'حضور و غیاب' :
+               activeTab === 'comments' ? 'نظرات و صحبت‌ها' :
                activeTab === 'stats' ? 'آمار و گزارشات' : 'جمع‌بندی نهایی'}
             </h2>
           </div>
