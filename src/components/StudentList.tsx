@@ -130,15 +130,25 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
     setLoading(true);
     try {
       let data: Student[] = [];
-      try {
-        const q = onlyActive 
-          ? query(collection(db, 'students'), where('isActive', '==', true))
-          : collection(db, 'students');
-        
-        const snapshot = await getDocs(q);
-        data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Student));
-      } catch (err) {
-        console.warn("Firestore fetch offline, loading laptop backup:", err);
+      if (navigator.onLine) {
+        try {
+          const q = onlyActive 
+            ? query(collection(db, 'students'), where('isActive', '==', true))
+            : collection(db, 'students');
+          
+          const snapshot = await Promise.race([
+            getDocs(q),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Network timeout')), 1200))
+          ]);
+          data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Student));
+        } catch (err) {
+          console.warn("Firestore fetch offline/timeout, loading laptop backup:", err);
+          data = getLocalLaptopBackup('students');
+          if (onlyActive) {
+            data = data.filter((s: Student) => s.isActive);
+          }
+        }
+      } else {
         data = getLocalLaptopBackup('students');
         if (onlyActive) {
           data = data.filter((s: Student) => s.isActive);
@@ -193,15 +203,22 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
           Object.entries(updateData).filter(([_, v]) => v !== undefined)
         );
         
-        try {
-          await updateDoc(doc(db, 'students', editingStudent.id), cleanData);
-        } catch (err) {
-          console.warn("Firestore update offline, saved to laptop storage:", err);
+        if (navigator.onLine) {
+          try {
+            await Promise.race([
+              updateDoc(doc(db, 'students', editingStudent.id), cleanData),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('Network timeout')), 1000))
+            ]);
+          } catch (err) {
+            console.warn("Firestore update offline/timeout, saved to laptop storage:", err);
+          }
         }
 
         // Update local laptop backup
         const currentBackup = getLocalLaptopBackup('students');
-        const updatedBackup = currentBackup.map((s: Student) => s.id === editingStudent.id ? { ...s, ...cleanData } : s);
+        const updatedBackup = currentBackup.map((s: Student) => 
+          s.id === editingStudent.id ? { ...s, ...cleanData } : s
+        );
         saveLocalLaptopBackup('students', updatedBackup);
 
         alert('اطلاعات با موفقیت بروزرسانی شد');
@@ -213,16 +230,28 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
         };
 
         let newId = 'student_' + Date.now();
-        try {
-          const docRef = await addDoc(collection(db, 'students'), studentToSave);
-          newId = docRef.id;
-        } catch (err) {
-          console.warn("Firestore addDoc offline, saved to laptop storage:", err);
+        if (navigator.onLine) {
+          try {
+            const docRef = await Promise.race([
+              addDoc(collection(db, 'students'), studentToSave),
+              new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Network timeout')), 1000))
+            ]);
+            if (docRef && docRef.id) {
+              newId = docRef.id;
+            }
+          } catch (err) {
+            console.warn("Firestore addDoc offline/timeout, saved to laptop storage:", err);
+          }
         }
 
         // Save to local laptop backup immediately
         const currentBackup = getLocalLaptopBackup('students');
-        currentBackup.push({ id: newId, ...studentToSave });
+        const existingIdx = currentBackup.findIndex((s: Student) => s.id === newId);
+        if (existingIdx >= 0) {
+          currentBackup[existingIdx] = { id: newId, ...studentToSave };
+        } else {
+          currentBackup.push({ id: newId, ...studentToSave });
+        }
         saveLocalLaptopBackup('students', currentBackup);
 
         alert('طلبه جدید با موفقیت ثبت شد');
@@ -289,7 +318,19 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
 
   const toggleActive = async (id: string, currentStatus: boolean) => {
     try {
-      await updateDoc(doc(db, 'students', id), { isActive: !currentStatus });
+      if (navigator.onLine) {
+        try {
+          await Promise.race([
+            updateDoc(doc(db, 'students', id), { isActive: !currentStatus }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 1000))
+          ]);
+        } catch (e) {
+          console.warn("Toggle active offline/timeout:", e);
+        }
+      }
+      const currentBackup = getLocalLaptopBackup('students');
+      const updatedBackup = currentBackup.map((s: Student) => s.id === id ? { ...s, isActive: !currentStatus } : s);
+      saveLocalLaptopBackup('students', updatedBackup);
       fetchStudents();
     } catch (error) {
       console.error("Error updating student:", error);
@@ -303,7 +344,20 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
   const confirmDeleteStudent = async () => {
     if (!studentToDelete) return;
     try {
-      await deleteDoc(doc(db, 'students', studentToDelete.id));
+      if (navigator.onLine) {
+        try {
+          await Promise.race([
+            deleteDoc(doc(db, 'students', studentToDelete.id)),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 1000))
+          ]);
+        } catch (e) {
+          console.warn("Delete student offline/timeout:", e);
+        }
+      }
+      const currentBackup = getLocalLaptopBackup('students');
+      const updatedBackup = currentBackup.filter((s: Student) => s.id !== studentToDelete.id);
+      saveLocalLaptopBackup('students', updatedBackup);
+
       setStudentToDelete(null);
       fetchStudents();
     } catch (error: any) {
@@ -315,9 +369,16 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
   const confirmDeleteAllStudents = async () => {
     setDeletingAll(true);
     try {
-      const snapshot = await getDocs(collection(db, 'students'));
-      const deletePromises = snapshot.docs.map(docSnap => deleteDoc(doc(db, 'students', docSnap.id)));
-      await Promise.all(deletePromises);
+      if (navigator.onLine) {
+        try {
+          const snapshot = await getDocs(collection(db, 'students'));
+          const deletePromises = snapshot.docs.map(docSnap => deleteDoc(doc(db, 'students', docSnap.id)));
+          await Promise.all(deletePromises);
+        } catch (e) {
+          console.warn("Delete all offline/timeout:", e);
+        }
+      }
+      saveLocalLaptopBackup('students', []);
       setShowDeleteAllModal(false);
       fetchStudents();
     } catch (error: any) {
