@@ -23,21 +23,35 @@ import {
   FileText,
   Search,
   Check,
-  X
+  X,
+  UserCheck,
+  GraduationCap
 } from 'lucide-react';
-import { localDb, FullBackupPackage, StudentBackupPackage } from '../lib/localDb';
+import { localDb, FullBackupPackage, MentorBackupPackage, StudentBackupPackage, MENTOR_META, getMentorKeyForGrade } from '../lib/localDb';
 import { Student } from '../types';
-import { useMentor } from '../context/MentorContext';
+import { useMentor, MentorId } from '../context/MentorContext';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+
+interface MentorStats {
+  id: MentorId;
+  name: string;
+  role: string;
+  gradeLabel: string;
+  avatarBg: string;
+  badgeBg: string;
+  badgeText: string;
+  badgeBorder: string;
+  dotColor: string;
+  studentCount: number;
+  photoCount: number;
+}
 
 export default function BackupAndRestore() {
   const { currentMentor } = useMentor();
   const [students, setStudents] = useState<Student[]>([]);
-  const [selectedStudentId, setSelectedStudentId] = useState<string>('');
-  const [studentSearchTerm, setStudentSearchTerm] = useState<string>('');
   const [isExportingFull, setIsExportingFull] = useState<boolean>(false);
-  const [isExportingStudent, setIsExportingStudent] = useState<boolean>(false);
+  const [exportingMentorId, setExportingMentorId] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState<boolean>(false);
   const [importMode, setImportMode] = useState<'overwrite' | 'merge'>('merge');
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
@@ -56,8 +70,7 @@ export default function BackupAndRestore() {
     collectionCounts: {}
   });
 
-  const fullFileInputRef = useRef<HTMLInputElement>(null);
-  const studentFileInputRef = useRef<HTMLInputElement>(null);
+  const universalFileInputRef = useRef<HTMLInputElement>(null);
   const [showResetConfirmModal, setShowResetConfirmModal] = useState<boolean>(false);
   const [resetConfirmText, setResetConfirmText] = useState<string>('');
 
@@ -67,9 +80,6 @@ export default function BackupAndRestore() {
       setStudents(allStudents);
       const storageStats = await localDb.getStorageStats();
       setStats(storageStats);
-      if (allStudents.length > 0 && !selectedStudentId) {
-        setSelectedStudentId(allStudents[0].id);
-      }
     } catch (e) {
       console.error('Error loading backup stats:', e);
     }
@@ -96,6 +106,7 @@ export default function BackupAndRestore() {
     URL.revokeObjectURL(url);
   };
 
+  // 1. Export Full System Backup
   const handleExportFullBackup = async () => {
     setIsExportingFull(true);
     setStatusMessage(null);
@@ -103,11 +114,11 @@ export default function BackupAndRestore() {
       const backup = await localDb.exportFullBackup();
       const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '_');
       const timeStr = new Date().toTimeString().slice(0, 5).replace(/:/g, '-');
-      const filename = `tolab_full_backup_${dateStr}_${timeStr}.json`;
+      const filename = `tolab_full_backup_all_users_${dateStr}_${timeStr}.json`;
       downloadJsonFile(backup, filename);
       setStatusMessage({
         type: 'success',
-        text: `فایل پشتیبان کامل سیستم با موفقیت تولید و دانلود شد (${backup._meta.totalRecords} رکورد شامل تمامی عکس‌ها).`
+        text: `فایل پشتیبان کامل نرم‌افزار (شامل کلیه اساتید، طلاب و عکس‌ها) با موفقیت دانلود شد (${backup._meta.totalRecords} رکورد).`
       });
     } catch (err: any) {
       console.error('Full backup error:', err);
@@ -120,35 +131,33 @@ export default function BackupAndRestore() {
     }
   };
 
-  const handleExportStudentBackup = async () => {
-    if (!selectedStudentId) {
-      alert('لطفاً یک طلبه را برای دریافت پشتیبان انتخاب کنید.');
-      return;
-    }
-    setIsExportingStudent(true);
+  // 2. Export Individual User/Mentor Backup (استاد حسینی، استاد حیاتی، استاد سلیمانی، استاد شاهپوری)
+  const handleExportMentorBackup = async (mentorId: MentorId) => {
+    setExportingMentorId(mentorId);
     setStatusMessage(null);
     try {
-      const backup = await localDb.exportStudentBackup(selectedStudentId);
-      const studentName = backup.student.name.replace(/\s+/g, '_');
+      const backup = await localDb.exportMentorBackup(mentorId);
+      const mentorName = backup.mentor.name.replace(/\s+/g, '_');
       const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '_');
-      const filename = `student_backup_${studentName}_${dateStr}.json`;
+      const filename = `mentor_backup_${mentorName}_${dateStr}.json`;
       downloadJsonFile(backup, filename);
       setStatusMessage({
         type: 'success',
-        text: `فایل پشتیبان پرونده «${backup.student.name}» با موفقیت تولید و دانلود شد (شامل عکس، مقالات، نمرات و اطلاعات).`
+        text: `فایل پشتیبان دیتای «${backup.mentor.name} (${backup.mentor.role})» با موفقیت دانلود شد (شامل ${backup.students.length} طلبه، سوابق و عکس‌ها).`
       });
     } catch (err: any) {
-      console.error('Student backup error:', err);
+      console.error('Mentor backup error:', err);
       setStatusMessage({
         type: 'error',
-        text: `خطا در دریافت پشتیبان طلبه: ${err?.message || 'خطای ناشناخته'}`
+        text: `خطا در پشتیبان‌گیری کاربر: ${err?.message || 'خطای ناشناخته'}`
       });
     } finally {
-      setIsExportingStudent(false);
+      setExportingMentorId(null);
     }
   };
 
-  const handleFullFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // 3. Universal File Import Handler (Detects Full, Mentor, or Student)
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -158,63 +167,25 @@ export default function BackupAndRestore() {
       const text = await file.text();
       const data = JSON.parse(text);
 
-      if (!data._meta || data._meta.exportType !== 'full') {
-        // If it lacks full meta but has collections, try accepting
-        if (!data.students && !data.programs) {
-          throw new Error('این فایل ساختار استاندارد پشتیبان کامل نرم‌افزار را ندارد.');
-        }
-      }
-
-      const result = await localDb.restoreFullBackup(data, importMode);
+      const result = await localDb.restoreAnyBackup(data, importMode);
       setStatusMessage({
         type: 'success',
         text: result.message
       });
       await loadData();
     } catch (err: any) {
-      console.error('Import full backup error:', err);
+      console.error('Universal import backup error:', err);
       setStatusMessage({
         type: 'error',
-        text: `خطا در بازیابی فایل پشتیبان کامل: ${err?.message || 'فرمت فایل پشتیبان نامعتبر است'}`
+        text: `خطا در بازیابی فایل پشتیبان: ${err?.message || 'فرمت فایل پشتیبان نامعتبر است'}`
       });
     } finally {
       setIsImporting(false);
-      if (fullFileInputRef.current) fullFileInputRef.current.value = '';
+      if (universalFileInputRef.current) universalFileInputRef.current.value = '';
     }
   };
 
-  const handleStudentFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsImporting(true);
-    setStatusMessage(null);
-    try {
-      const text = await file.text();
-      const data = JSON.parse(text);
-
-      if (!data.student || !data.student.name) {
-        throw new Error('این فایل ساختار پشتیبان اختصاصی طلبه را ندارد.');
-      }
-
-      const result = await localDb.restoreStudentBackup(data, importMode);
-      setStatusMessage({
-        type: 'success',
-        text: `اطلاعات و پرونده کامل طلبه «${result.studentName}» با موفقیت به نرم‌افزار افزوده شد.`
-      });
-      await loadData();
-    } catch (err: any) {
-      console.error('Import student backup error:', err);
-      setStatusMessage({
-        type: 'error',
-        text: `خطا در بازیابی فایل طلبه: ${err?.message || 'فرمت فایل نامعتبر است'}`
-      });
-    } finally {
-      setIsImporting(false);
-      if (studentFileInputRef.current) studentFileInputRef.current.value = '';
-    }
-  };
-
+  // 4. Export Photo Archive
   const handleExportAllPhotosJson = async () => {
     try {
       const allStudents = await localDb.getDocs<Student>('students');
@@ -247,29 +218,69 @@ export default function BackupAndRestore() {
     }
   };
 
-  const filteredStudents = students.filter(
-    (s) =>
-      s.name.toLowerCase().includes(studentSearchTerm.toLowerCase()) ||
-      (s.nationalId && s.nationalId.includes(studentSearchTerm)) ||
-      (s.grade && s.grade.includes(studentSearchTerm))
-  );
-
-  const selectedStudentObj = students.find((s) => s.id === selectedStudentId);
+  // Calculate stats for each mentor/user
+  const mentorCards: MentorStats[] = [
+    {
+      id: 'hayati',
+      name: 'استاد حیاتی',
+      role: 'مسئول پایه ۷',
+      gradeLabel: 'پایه ۷',
+      avatarBg: 'bg-emerald-600',
+      badgeBg: 'bg-emerald-50',
+      badgeText: 'text-emerald-700',
+      badgeBorder: 'border-emerald-200',
+      dotColor: 'bg-emerald-500',
+      studentCount: students.filter((s) => getMentorKeyForGrade(s.grade) === 'hayati').length,
+      photoCount: students.filter((s) => getMentorKeyForGrade(s.grade) === 'hayati' && s.photoUrl).length
+    },
+    {
+      id: 'hosseini',
+      name: 'استاد حسینی',
+      role: 'مسئول پایه ۸',
+      gradeLabel: 'پایه ۸',
+      avatarBg: 'bg-sky-600',
+      badgeBg: 'bg-sky-50',
+      badgeText: 'text-sky-700',
+      badgeBorder: 'border-sky-200',
+      dotColor: 'bg-sky-500',
+      studentCount: students.filter((s) => getMentorKeyForGrade(s.grade) === 'hosseini').length,
+      photoCount: students.filter((s) => getMentorKeyForGrade(s.grade) === 'hosseini' && s.photoUrl).length
+    },
+    {
+      id: 'soleimani',
+      name: 'استاد سلیمانی',
+      role: 'مسئول پایه ۹',
+      gradeLabel: 'پایه ۹',
+      avatarBg: 'bg-purple-600',
+      badgeBg: 'bg-purple-50',
+      badgeText: 'text-purple-700',
+      badgeBorder: 'border-purple-200',
+      dotColor: 'bg-purple-500',
+      studentCount: students.filter((s) => getMentorKeyForGrade(s.grade) === 'soleimani').length,
+      photoCount: students.filter((s) => getMentorKeyForGrade(s.grade) === 'soleimani' && s.photoUrl).length
+    },
+    {
+      id: 'shahpoori',
+      name: 'استاد شاهپوری',
+      role: 'مدیر اصلی',
+      gradeLabel: 'کل پایه‌ها',
+      avatarBg: 'bg-amber-600',
+      badgeBg: 'bg-amber-50',
+      badgeText: 'text-amber-800',
+      badgeBorder: 'border-amber-200',
+      dotColor: 'bg-amber-500',
+      studentCount: students.length,
+      photoCount: stats.totalPhotos
+    }
+  ];
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 text-right font-vazir" dir="rtl">
-      {/* Hidden File Inputs */}
+      {/* Hidden Universal File Input */}
       <input
         type="file"
-        ref={fullFileInputRef}
-        onChange={handleFullFileSelected}
-        accept=".json"
-        className="hidden"
-      />
-      <input
-        type="file"
-        ref={studentFileInputRef}
-        onChange={handleStudentFileSelected}
+        ref={universalFileInputRef}
+        onChange={handleFileSelected}
         accept=".json"
         className="hidden"
       />
@@ -281,14 +292,13 @@ export default function BackupAndRestore() {
           <div className="space-y-2">
             <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/15 rounded-full text-xs font-bold backdrop-blur-md">
               <HardDrive size={14} className="text-emerald-300" />
-              <span>ذخیره‌سازی ۱۰۰٪ آفلاین بر روی دستگاه شما</span>
+              <span>پایگاه داده ۱۰۰٪ آفلاین و محلی</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-black text-white">
               پشتیبان‌گیری و بازیابی داده‌ها
             </h1>
             <p className="text-indigo-100 text-xs sm:text-sm max-w-2xl leading-relaxed">
-              تمام اطلاعات نرم‌افزار، پرونده‌ها و عکس‌های طلاب به صورت محلی و امن روی لپ‌تاپ شما نگهداری می‌شوند.
-              در این بخش می‌توانید از کل نرم‌افزار یا تک‌تک طلاب فایل پشتیبان تهیه کرده و در مواقع نیاز آن را بازیابی کنید.
+              در این بخش می‌توانید از دیتای کل نرم‌افزار و تمام کاربران به صورت یکجا، و یا از دیتای تک‌تک اساتید (استاد حیاتی، استاد حسینی، استاد سلیمانی، استاد شاهپوری) فایل پشتیبان دانلود نموده و در زمان نیاز آن را با یک کلیک به سیستم بازگردانید.
             </p>
           </div>
 
@@ -339,193 +349,175 @@ export default function BackupAndRestore() {
         )}
       </AnimatePresence>
 
-      {/* Main Grid: 2 Major Columns */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Section 1: Full System Backup & Restore */}
-        <div className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200 shadow-sm space-y-6 flex flex-col justify-between">
+      {/* Section 1: Full System Backup & Restore Hub */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Full System Export Box */}
+        <div className="lg:col-span-7 bg-white rounded-3xl p-6 sm:p-7 border border-slate-200 shadow-sm flex flex-col justify-between space-y-5">
           <div className="space-y-4">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold shrink-0">
                 <Database size={24} />
               </div>
               <div>
-                <h2 className="text-lg font-black text-slate-800">۱. پشتیبان‌گیری کل سیستم</h2>
-                <p className="text-xs text-slate-500">پشتیبان‌گیری و بازیابی از کلیه جداول، طلاب، دوره‌ها و تنظیمات</p>
+                <h2 className="text-lg font-black text-slate-800">۱. پشتیبان‌گیری کل نرم‌افزار و تمام کاربران</h2>
+                <p className="text-xs text-slate-500">دانلود یک بسته جامع شامل تمامی اساتید، پایه‌های ۷، ۸، ۹، سوابق و کلیه عکس‌ها</p>
               </div>
             </div>
 
-            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3 text-xs text-slate-600 leading-relaxed">
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2.5 text-xs text-slate-600 leading-relaxed">
               <div className="flex items-center justify-between font-bold text-slate-700">
-                <span>محتوای ذخیره شده در فایل:</span>
-                <span className="text-indigo-600 font-mono">JSON خودکفا</span>
+                <span>محتوای ذخیره شده در فایل پشتیبان کل:</span>
+                <span className="text-indigo-600 font-mono">JSON خودکفا + تصاویر Base64</span>
               </div>
               <ul className="grid grid-cols-2 gap-2 text-[11px]">
-                <li className="flex items-center gap-1.5"><Check size={14} className="text-emerald-500" /> مشخصات کامل طلاب</li>
+                <li className="flex items-center gap-1.5"><Check size={14} className="text-emerald-500" /> مشخصات طلاب تمام پایه‌ها</li>
                 <li className="flex items-center gap-1.5"><Check size={14} className="text-emerald-500" /> کلیه عکس‌های بارگذاری شده</li>
                 <li className="flex items-center gap-1.5"><Check size={14} className="text-emerald-500" /> سوابق پژوهش و مقالات</li>
                 <li className="flex items-center gap-1.5"><Check size={14} className="text-emerald-500" /> دوره‌ها و ساعات مطالعه</li>
-                <li className="flex items-center gap-1.5"><Check size={14} className="text-emerald-500" /> نظرات و امتحانات شفاهی</li>
+                <li className="flex items-center gap-1.5"><Check size={14} className="text-emerald-500" /> نظرات اساتید و امتحانات</li>
                 <li className="flex items-center gap-1.5"><Check size={14} className="text-emerald-500" /> پیگیری‌ها و برنامه‌ها</li>
               </ul>
             </div>
           </div>
 
-          <div className="space-y-4 pt-2">
-            {/* Export Full Backup Button */}
-            <button
-              onClick={handleExportFullBackup}
-              disabled={isExportingFull}
-              className="w-full flex items-center justify-center gap-2.5 py-3.5 px-4 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-2xl font-bold transition-all shadow-md hover:shadow-indigo-200 disabled:opacity-50"
-            >
-              {isExportingFull ? (
-                <RefreshCw size={18} className="animate-spin" />
-              ) : (
-                <ArrowDownToLine size={18} />
-              )}
-              <span>دانلود فایل پشتیبان کامل نرم‌افزار (با عکس‌ها)</span>
-            </button>
+          <button
+            onClick={handleExportFullBackup}
+            disabled={isExportingFull}
+            className="w-full flex items-center justify-center gap-2.5 py-4 px-4 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-2xl font-bold transition-all shadow-md hover:shadow-indigo-200 disabled:opacity-50 text-sm"
+          >
+            {isExportingFull ? (
+              <RefreshCw size={18} className="animate-spin" />
+            ) : (
+              <ArrowDownToLine size={18} />
+            )}
+            <span>دانلود پشتیبان کامل کل نرم‌افزار و تمام کاربران (با عکس‌ها)</span>
+          </button>
+        </div>
 
-            {/* Restore Full Backup Box */}
-            <div className="border-t border-slate-100 pt-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                  <ArrowUpFromLine size={14} className="text-indigo-600" />
-                  <span>بارگذاری و بازیابی فایل پشتیبان کل سیستم:</span>
-                </span>
-                
-                {/* Import Mode Toggle */}
-                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-[11px] font-bold">
-                  <button
-                    onClick={() => setImportMode('merge')}
-                    className={cn(
-                      "px-2.5 py-1 rounded-lg transition-all",
-                      importMode === 'merge' ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-800"
-                    )}
-                    title="داده‌های جدید اضافه شده و داده‌های فعلی حفظ می‌شوند"
-                  >
-                    ادغام
-                  </button>
-                  <button
-                    onClick={() => setImportMode('overwrite')}
-                    className={cn(
-                      "px-2.5 py-1 rounded-lg transition-all",
-                      importMode === 'overwrite' ? "bg-rose-600 text-white shadow-sm" : "text-slate-500 hover:text-slate-800"
-                    )}
-                    title="داده‌های موجود کاملاً حذف و با فایل پشتیبان جایگزین می‌شوند"
-                  >
-                    جایگزینی کامل
-                  </button>
-                </div>
+        {/* Restore Hub (Supports any file) */}
+        <div className="lg:col-span-5 bg-white rounded-3xl p-6 sm:p-7 border border-slate-200 shadow-sm flex flex-col justify-between space-y-5">
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold shrink-0">
+                <Upload size={24} />
               </div>
+              <div>
+                <h2 className="text-lg font-black text-slate-800">بازیابی فایل پشتیبان</h2>
+                <p className="text-xs text-slate-500">بارگذاری پشتیبان کل نرم‌افزار یا پشتیبان هر یک از اساتید</p>
+              </div>
+            </div>
 
-              <button
-                onClick={() => fullFileInputRef.current?.click()}
-                disabled={isImporting}
-                className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border-2 border-dashed border-indigo-200 hover:border-indigo-400 text-indigo-700 rounded-2xl font-bold transition-all disabled:opacity-50"
-              >
-                <Upload size={16} />
-                <span>انتخاب و بارگذاری فایل پشتیبان کل نرم‌افزار (.json)</span>
-              </button>
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-slate-700">نحوه اعمال داده‌های بارگذاری شده:</label>
+              <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1.5 rounded-2xl text-xs font-bold">
+                <button
+                  onClick={() => setImportMode('merge')}
+                  className={cn(
+                    "py-2 px-3 rounded-xl transition-all text-center",
+                    importMode === 'merge' ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                  )}
+                >
+                  ادغام (پیشنهادی)
+                </button>
+                <button
+                  onClick={() => setImportMode('overwrite')}
+                  className={cn(
+                    "py-2 px-3 rounded-xl transition-all text-center",
+                    importMode === 'overwrite' ? "bg-rose-600 text-white shadow-sm" : "text-slate-500 hover:text-slate-800"
+                  )}
+                >
+                  جایگزینی کامل
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-400 leading-normal px-1">
+                {importMode === 'merge' 
+                  ? 'داده‌های جدید اضافه شده و اطلاعات قبلی محفوظ می‌ماند.' 
+                  : 'اطلاعات موجود پاک شده و دقیقاً با محتوای فایل پشتیبان جایگزین می‌شود.'}
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => universalFileInputRef.current?.click()}
+            disabled={isImporting}
+            className="w-full flex items-center justify-center gap-2 py-4 px-4 bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 border-2 border-dashed border-emerald-300 hover:border-emerald-500 text-emerald-800 rounded-2xl font-bold transition-all disabled:opacity-50 text-xs sm:text-sm"
+          >
+            <Upload size={18} className="text-emerald-600" />
+            <span>انتخاب و بارگذاری فایل پشتیبان (.json)</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Section 2: Individual Mentors/Users Backup (استاد حسینی، حیاتی، سلیمانی، شاهپوری) */}
+      <div className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200 shadow-sm space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-sky-50 text-sky-600 flex items-center justify-center font-bold shrink-0">
+              <Users size={24} />
+            </div>
+            <div>
+              <h2 className="text-lg font-black text-slate-800">۲. پشتیبان‌گیری به تفکیک تک‌تک کاربران (اساتید)</h2>
+              <p className="text-xs text-slate-500">
+                در این قسمت می‌توانید فقط دیتای اختصاصی یک استاد خاص (شامل طلاب، سوابق و عکس‌های پایه او) را دانلود نمایید.
+              </p>
             </div>
           </div>
         </div>
 
-        {/* Section 2: Single Student Backup & Restore */}
-        <div className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200 shadow-sm space-y-6 flex flex-col justify-between">
-          <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold shrink-0">
-                <User size={24} />
-              </div>
-              <div>
-                <h2 className="text-lg font-black text-slate-800">۲. پشتیبان‌گیری پرونده تک‌تک طلاب</h2>
-                <p className="text-xs text-slate-500">پشتیبان‌گیری مستقل از پرونده یک طلبه خاص با امکان انتقال و بازیابی</p>
-              </div>
-            </div>
-
-            {/* Student Picker */}
-            <div className="space-y-2">
-              <label className="block text-xs font-bold text-slate-700">انتخاب طلبه مورد نظر:</label>
-              
-              <div className="relative">
-                <Search size={14} className="absolute right-3 top-3 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="جستجوی نام یا کد ملی..."
-                  value={studentSearchTerm}
-                  onChange={(e) => setStudentSearchTerm(e.target.value)}
-                  className="w-full pr-8 pl-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              <div className="max-h-36 overflow-y-auto border border-slate-200 rounded-2xl p-1 space-y-1 divide-y divide-slate-100">
-                {filteredStudents.length === 0 ? (
-                  <p className="text-center py-4 text-xs text-slate-400">طلبه‌ای یافت نشد.</p>
-                ) : (
-                  filteredStudents.map((s) => (
-                    <button
-                      key={s.id}
-                      onClick={() => setSelectedStudentId(s.id)}
-                      className={cn(
-                        "w-full flex items-center justify-between p-2 rounded-xl text-right transition-all text-xs",
-                        selectedStudentId === s.id
-                          ? "bg-emerald-50 text-emerald-900 font-bold border border-emerald-200"
-                          : "hover:bg-slate-50 text-slate-700"
-                      )}
-                    >
-                      <div className="flex items-center gap-2">
-                        {s.photoUrl ? (
-                          <img src={s.photoUrl} alt={s.name} className="w-6 h-6 rounded-full object-cover border border-slate-200" />
-                        ) : (
-                          <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-[10px] text-slate-600 font-bold">
-                            {s.name[0]}
-                          </div>
-                        )}
-                        <span>{s.name}</span>
-                        {s.grade && <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 rounded text-slate-500">{s.grade}</span>}
-                      </div>
-                      {selectedStudentId === s.id && <Check size={14} className="text-emerald-600" />}
-                    </button>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-4 pt-2">
-            {/* Export Student Backup Button */}
-            <button
-              onClick={handleExportStudentBackup}
-              disabled={isExportingStudent || !selectedStudentId}
-              className="w-full flex items-center justify-center gap-2.5 py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-2xl font-bold transition-all shadow-md hover:shadow-emerald-200 disabled:opacity-50"
-            >
-              {isExportingStudent ? (
-                <RefreshCw size={18} className="animate-spin" />
-              ) : (
-                <ArrowDownToLine size={18} />
-              )}
-              <span>
-                دانلود پشتیبان پرونده {selectedStudentObj ? `«${selectedStudentObj.name}»` : 'طلبه انتخابی'}
-              </span>
-            </button>
-
-            {/* Restore Student Backup Box */}
-            <div className="border-t border-slate-100 pt-4 space-y-3">
-              <span className="block text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                <ArrowUpFromLine size={14} className="text-emerald-600" />
-                <span>بارگذاری فایل پشتیبان پرونده یک طلبه:</span>
-              </span>
-
-              <button
-                onClick={() => studentFileInputRef.current?.click()}
-                disabled={isImporting}
-                className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border-2 border-dashed border-emerald-200 hover:border-emerald-400 text-emerald-700 rounded-2xl font-bold transition-all disabled:opacity-50"
+        {/* 4 Cards for 4 Mentors */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {mentorCards.map((m) => {
+            const isExportingThis = exportingMentorId === m.id;
+            return (
+              <div
+                key={m.id}
+                className="bg-slate-50 border border-slate-200/90 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:border-slate-300 transition-all shadow-sm"
               >
-                <Upload size={16} />
-                <span>انتخاب و افزودن فایل پشتیبان طلبه (.json)</span>
-              </button>
-            </div>
-          </div>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className={cn("w-10 h-10 rounded-xl text-white font-bold flex items-center justify-center text-sm shadow-sm", m.avatarBg)}>
+                      {m.name.split(' ')[1]?.[0] || 'ا'}
+                    </div>
+                    <span className={cn("text-[11px] px-2.5 py-1 rounded-full font-bold border", m.badgeBg, m.badgeText, m.badgeBorder)}>
+                      {m.gradeLabel}
+                    </span>
+                  </div>
+
+                  <div>
+                    <h3 className="font-black text-slate-800 text-sm flex items-center gap-1.5">
+                      <span>{m.name}</span>
+                      {m.id === 'shahpoori' && <ShieldCheck size={14} className="text-amber-600" />}
+                    </h3>
+                    <p className="text-xs text-slate-500 font-medium">{m.role}</p>
+                  </div>
+
+                  <div className="bg-white rounded-xl p-2.5 border border-slate-200/80 flex items-center justify-between text-xs">
+                    <span className="text-slate-500">تعداد طلاب:</span>
+                    <span className="font-black text-slate-800">{m.studentCount} طلبه</span>
+                  </div>
+
+                  <div className="bg-white rounded-xl p-2.5 border border-slate-200/80 flex items-center justify-between text-xs">
+                    <span className="text-slate-500">عکس‌های ثبت شده:</span>
+                    <span className="font-black text-emerald-600">{m.photoCount} عکس</span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => handleExportMentorBackup(m.id)}
+                  disabled={isExportingThis}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-white hover:bg-slate-100 active:bg-slate-200 border border-slate-300 text-slate-800 rounded-xl text-xs font-bold transition-all shadow-xs disabled:opacity-50"
+                  title={`دانلود فایل پشتیبان اختصاصی ${m.name}`}
+                >
+                  {isExportingThis ? (
+                    <RefreshCw size={14} className="animate-spin text-indigo-600" />
+                  ) : (
+                    <Download size={14} className="text-slate-600" />
+                  )}
+                  <span>دانلود دیتای {m.name}</span>
+                </button>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -539,7 +531,7 @@ export default function BackupAndRestore() {
             <div>
               <h2 className="text-lg font-black text-slate-800">۳. مدیریت و پشتیبان‌گیری اختصاصی عکس‌ها</h2>
               <p className="text-xs text-slate-500">
-                کلیه تصاویر به صورت مستقیم در فایل‌های پشتیبان ذخیره می‌شوند و می‌توانید آرشیو مجزای عکس‌ها را نیز دانلود کنید.
+                تمامی عکس‌ها در فایل‌های پشتیبان فوق به صورت خودکار گنجانده شده‌اند؛ در صورت تمایل می‌توانید آرشیو مستقل تصاویر را نیز دریافت کنید.
               </p>
             </div>
           </div>
@@ -550,7 +542,7 @@ export default function BackupAndRestore() {
             className="flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 rounded-xl text-xs font-bold transition-all disabled:opacity-40"
           >
             <Download size={15} />
-            <span>دانلود پکیج مجزای عکس‌ها (JSON)</span>
+            <span>دانلود پکیج مستقل عکس‌ها (JSON)</span>
           </button>
         </div>
 

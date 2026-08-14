@@ -11,13 +11,39 @@ export interface BackupMetadata {
   totalCollections: number;
   totalRecords: number;
   hasPhotos: boolean;
-  exportType: 'full' | 'single_student';
+  exportType: 'full' | 'mentor' | 'single_student';
+  mentorId?: string;
+  mentorName?: string;
+  mentorRole?: string;
+  gradeLabel?: string;
   studentId?: string;
   studentName?: string;
 }
 
 export interface FullBackupPackage {
   _meta: BackupMetadata;
+  students: any[];
+  programs: any[];
+  enrollments: any[];
+  research: any[];
+  conversation_archives: any[];
+  attendance: any[];
+  study_stats: any[];
+  study_periods: any[];
+  periodic_study_logs: any[];
+  todos: any[];
+  student_comments: any[];
+  oral_exams: any[];
+}
+
+export interface MentorBackupPackage {
+  _meta: BackupMetadata;
+  mentor: {
+    id: string;
+    name: string;
+    role: string;
+    gradeLabel: string;
+  };
   students: any[];
   programs: any[];
   enrollments: any[];
@@ -69,6 +95,22 @@ export const COLLECTIONS = [
 ] as const;
 
 export type CollectionName = typeof COLLECTIONS[number] | string;
+
+export function getMentorKeyForGrade(grade?: string): 'hayati' | 'hosseini' | 'soleimani' | 'other' {
+  if (!grade) return 'other';
+  const g = grade.trim().toLowerCase();
+  if (g.includes('7') || g.includes('۷') || g.includes('هفت')) return 'hayati';
+  if (g.includes('8') || g.includes('۸') || g.includes('هشت')) return 'hosseini';
+  if (g.includes('9') || g.includes('۹') || g.includes('نه')) return 'soleimani';
+  return 'other';
+}
+
+export const MENTOR_META: Record<string, { id: string; name: string; role: string; gradeLabel: string }> = {
+  hayati: { id: 'hayati', name: 'استاد حیاتی', role: 'مسئول پایه ۷', gradeLabel: 'پایه ۷' },
+  hosseini: { id: 'hosseini', name: 'استاد حسینی', role: 'مسئول پایه ۸', gradeLabel: 'پایه ۸' },
+  soleimani: { id: 'soleimani', name: 'استاد سلیمانی', role: 'مسئول پایه ۹', gradeLabel: 'پایه ۹' },
+  shahpoori: { id: 'shahpoori', name: 'استاد شاهپوری', role: 'مدیر اصلی', gradeLabel: 'کل پایه‌ها' },
+};
 
 class LocalDatabase {
   private dbPromise: Promise<IDBDatabase> | null = null;
@@ -364,6 +406,112 @@ class LocalDatabase {
     return backupPackage;
   }
 
+  // Export individual mentor/professor backup (e.g. استاد حسینی، استاد حیاتی، استاد سلیمانی، استاد شاهپوری)
+  async exportMentorBackup(mentorId: string): Promise<MentorBackupPackage> {
+    const meta = MENTOR_META[mentorId] || {
+      id: mentorId,
+      name: mentorId === 'shahpoori' ? 'استاد شاهپوری' : `استاد ${mentorId}`,
+      role: 'مسئول پایه',
+      gradeLabel: 'پایه مربوطه'
+    };
+
+    const allStudents = await this.getDocs('students');
+    const mentorStudents = allStudents.filter((s) => {
+      if (mentorId === 'shahpoori') return true;
+      const key = getMentorKeyForGrade(s.grade);
+      return key === mentorId;
+    });
+
+    const studentIds = new Set(mentorStudents.map((s) => s.id));
+
+    const [
+      allResearch,
+      allArchives,
+      allAttendance,
+      allStats,
+      allPeriodicLogs,
+      allPeriods,
+      allComments,
+      allExams,
+      allEnrollments,
+      allPrograms,
+      allTodos
+    ] = await Promise.all([
+      this.getDocs('research'),
+      this.getDocs('conversation_archives'),
+      this.getDocs('attendance'),
+      this.getDocs('study_stats'),
+      this.getDocs('periodic_study_logs'),
+      this.getDocs('study_periods'),
+      this.getDocs('student_comments'),
+      this.getDocs('oral_exams'),
+      this.getDocs('enrollments'),
+      this.getDocs('programs'),
+      this.getDocs('todos')
+    ]);
+
+    const mentorResearch = allResearch.filter((r) => studentIds.has(r.studentId));
+    const mentorArchives = allArchives.filter((a) => studentIds.has(a.studentId));
+    const mentorAttendance = allAttendance.filter((a) => studentIds.has(a.studentId));
+    const mentorStats = allStats.filter((s) => studentIds.has(s.studentId));
+    const mentorPeriodicLogs = allPeriodicLogs.filter((p) => studentIds.has(p.studentId));
+    const relevantPeriodIds = new Set(mentorPeriodicLogs.map((p) => p.periodId));
+    const mentorPeriods = allPeriods.filter((p) => relevantPeriodIds.has(p.id));
+    const mentorComments = allComments.filter((c) => studentIds.has(c.studentId));
+    const mentorExams = allExams.filter((e) => studentIds.has(e.studentId));
+    const mentorEnrollments = allEnrollments.filter((e) => studentIds.has(e.studentId));
+    const relevantProgramIds = new Set(mentorEnrollments.map((e) => e.programId));
+    const mentorPrograms = allPrograms.filter((p) => relevantProgramIds.has(p.id));
+    const mentorTodos = allTodos.filter((t) => studentIds.has(t.studentId));
+
+    const totalRecords =
+      mentorStudents.length +
+      mentorResearch.length +
+      mentorArchives.length +
+      mentorAttendance.length +
+      mentorStats.length +
+      mentorPeriodicLogs.length +
+      mentorPeriods.length +
+      mentorComments.length +
+      mentorExams.length +
+      mentorEnrollments.length +
+      mentorPrograms.length +
+      mentorTodos.length;
+
+    const hasPhotos = mentorStudents.some((s) => !!s.photoUrl);
+
+    const backupPackage: MentorBackupPackage = {
+      _meta: {
+        version: '2.0.0-offline',
+        exportDate: new Date().toISOString(),
+        systemName: 'سیستم جامع مدیریت طلاب (آفلاین)',
+        totalCollections: 12,
+        totalRecords,
+        hasPhotos,
+        exportType: 'mentor',
+        mentorId: meta.id,
+        mentorName: meta.name,
+        mentorRole: meta.role,
+        gradeLabel: meta.gradeLabel
+      },
+      mentor: meta,
+      students: mentorStudents,
+      programs: mentorPrograms,
+      enrollments: mentorEnrollments,
+      research: mentorResearch,
+      conversation_archives: mentorArchives,
+      attendance: mentorAttendance,
+      study_stats: mentorStats,
+      study_periods: mentorPeriods,
+      periodic_study_logs: mentorPeriodicLogs,
+      todos: mentorTodos,
+      student_comments: mentorComments,
+      oral_exams: mentorExams
+    };
+
+    return backupPackage;
+  }
+
   // Export individual student backup
   async exportStudentBackup(studentId: string): Promise<StudentBackupPackage> {
     const student = await this.getDoc('students', studentId);
@@ -518,6 +666,131 @@ class LocalDatabase {
       return { success: true, message: 'داده‌ها با موفقیت بازیابی شدند.' };
     }
     return this.restoreFullBackup(backupData, mode);
+  }
+
+  // Restore individual mentor/user backup
+  async restoreMentorBackup(
+    backupData: MentorBackupPackage,
+    mode: 'overwrite' | 'merge' = 'merge'
+  ): Promise<{ success: boolean; mentorName: string; studentCount: number; message: string; counts: Record<string, number> }> {
+    if (!backupData || !backupData.mentor || !Array.isArray(backupData.students)) {
+      throw new Error('فایل پشتیبان کاربر/استاد نامعتبر است.');
+    }
+
+    const mentorId = backupData.mentor.id;
+    const incomingStudentIds = new Set(backupData.students.map((s) => s.id));
+
+    if (mode === 'overwrite') {
+      // Find existing students for this mentor's grade and clear their data
+      const allStudents = await this.getDocs('students');
+      const studentsToRemove = allStudents.filter((s) => {
+        if (mentorId === 'shahpoori') return true;
+        const key = getMentorKeyForGrade(s.grade);
+        return key === mentorId;
+      });
+      const removeIds = new Set(studentsToRemove.map((s) => s.id));
+
+      const cols: CollectionName[] = [
+        'research',
+        'conversation_archives',
+        'attendance',
+        'study_stats',
+        'periodic_study_logs',
+        'student_comments',
+        'oral_exams',
+        'enrollments',
+        'todos'
+      ];
+
+      for (const col of cols) {
+        const records = await this.getDocs(col);
+        const toDelete = records.filter((r: any) => removeIds.has(r.studentId));
+        for (const item of toDelete) {
+          await this.deleteDoc(col, item.id);
+        }
+      }
+
+      for (const s of studentsToRemove) {
+        await this.deleteDoc('students', s.id);
+      }
+    }
+
+    const counts: Record<string, number> = {};
+
+    const collectionsToRestore: (keyof MentorBackupPackage)[] = [
+      'students',
+      'programs',
+      'enrollments',
+      'research',
+      'conversation_archives',
+      'attendance',
+      'study_stats',
+      'study_periods',
+      'periodic_study_logs',
+      'todos',
+      'student_comments',
+      'oral_exams'
+    ];
+
+    for (const key of collectionsToRestore) {
+      const items = backupData[key] as any[];
+      if (Array.isArray(items) && items.length > 0) {
+        await this.bulkPut(key as CollectionName, items);
+        counts[key] = items.length;
+      } else {
+        counts[key] = 0;
+      }
+    }
+
+    this.notify();
+    return {
+      success: true,
+      mentorName: backupData.mentor.name || 'استاد',
+      studentCount: backupData.students.length,
+      message: `اطلاعات و پرونده‌های ${backupData.mentor.name} (${backupData.mentor.role}) با موفقیت بازیابی شد (${backupData.students.length} طلبه).`,
+      counts
+    };
+  }
+
+  // Universal Restore handler that detects package type
+  async restoreAnyBackup(
+    backupData: any,
+    mode: 'overwrite' | 'merge' = 'merge'
+  ): Promise<{ success: boolean; message: string; type: string; details?: any }> {
+    if (!backupData || typeof backupData !== 'object') {
+      throw new Error('فرمت فایل پشتیبان نامعتبر است.');
+    }
+
+    // 1. Check if it's single student backup
+    if (backupData._meta?.exportType === 'single_student' || (backupData.student && backupData.student.name)) {
+      const res = await this.restoreStudentBackup(backupData, mode);
+      return {
+        success: true,
+        type: 'student',
+        message: `پرونده طلبه «${res.studentName}» با موفقیت بازیابی شد.`,
+        details: res
+      };
+    }
+
+    // 2. Check if it's mentor/user backup
+    if (backupData._meta?.exportType === 'mentor' || (backupData.mentor && Array.isArray(backupData.students))) {
+      const res = await this.restoreMentorBackup(backupData, mode);
+      return {
+        success: true,
+        type: 'mentor',
+        message: res.message,
+        details: res
+      };
+    }
+
+    // 3. Fallback to Full Backup
+    const res = await this.restoreFullBackup(backupData, mode);
+    return {
+      success: true,
+      type: 'full',
+      message: res.message,
+      details: res
+    };
   }
 
   // Restore single student backup into local database
