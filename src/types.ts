@@ -14,6 +14,7 @@ export interface Student {
   birthPlace?: string;
   birthDate?: string;
   maritalStatus?: 'مجرد' | 'متاهل';
+  childrenCount?: number;
   livingStatus?: 'پدری' | 'خوابگاه' | 'اجاره ای' | 'شخصی' | 'سایر';
   livingStatusOther?: string;
   classicEducation?: string;

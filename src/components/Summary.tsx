@@ -499,6 +499,7 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
           نام_پدر: studentDetails.info.fatherName || 'نامشخص',
           شغل_پدر: studentDetails.info.fatherOccupation || 'ثبت نشده',
           وضعیت_تاهل: studentDetails.info.maritalStatus || 'مجرد',
+          تعداد_فرزندان: studentDetails.info.childrenCount ?? 0,
           وضعیت_سکونت: studentDetails.info.livingStatus ? (studentDetails.info.livingStatus === 'سایر' && studentDetails.info.livingStatusOther ? `سایر (${studentDetails.info.livingStatusOther})` : studentDetails.info.livingStatus) : 'پدری',
           اهل_کجا_هست: studentDetails.info.birthPlace || 'ثبت نشده',
           تلفن: studentDetails.info.phoneNumber || (studentDetails.info as any).phone || 'نامشخص',
@@ -751,7 +752,10 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
                   <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1 mb-0.5">
                     <Heart size={12} className="text-rose-500" /> وضعیت تأهل
                   </span>
-                  <span className="text-xs font-bold text-slate-700">{studentDetails.info.maritalStatus || 'مجرد'}</span>
+                  <span className="text-xs font-bold text-slate-700">
+                    {studentDetails.info.maritalStatus || 'مجرد'}
+                    {studentDetails.info.childrenCount !== undefined && studentDetails.info.childrenCount !== null && studentDetails.info.childrenCount > 0 ? ` (${studentDetails.info.childrenCount} فرزند)` : ''}
+                  </span>
                 </div>
 
                 <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
@@ -1461,7 +1465,7 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
                 <div><b>نام پدر:</b> {studentDetails.info.fatherName || '---'}</div>
                 <div><b>شغل پدر:</b> {studentDetails.info.fatherJob || '---'}</div>
                 <div><b>محل تولد / صادره:</b> {studentDetails.info.birthPlace || '---'}</div>
-                <div><b>وضعیت تأهل:</b> {studentDetails.info.maritalStatus || 'مجرد'}</div>
+                <div><b>وضعیت تأهل:</b> {studentDetails.info.maritalStatus || 'مجرد'}{studentDetails.info.childrenCount ? ` (${studentDetails.info.childrenCount} فرزند)` : ''}</div>
                 <div><b>وضعیت سکونت:</b> {studentDetails.info.livingStatus || 'پدری'}</div>
                 <div><b>شماره تماس:</b> {studentDetails.info.phoneNumber || '---'}</div>
                 <div><b>استاد راهنما:</b> {(studentDetails.info as any).mentorName || '---'}</div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Plus, 
   Upload, 
@@ -10,7 +10,12 @@ import {
   FileSpreadsheet,
   Settings2,
   ChevronDown,
-  User
+  User,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Filter,
+  RotateCcw
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { collection, addDoc, getDocs, updateDoc, doc, deleteDoc, query, where } from 'firebase/firestore';
@@ -48,6 +53,7 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
     birthPlace: '',
     birthDate: '',
     maritalStatus: 'مجرد',
+    childrenCount: 0,
     livingStatus: 'پدری',
     livingStatusOther: '',
     classicEducation: '',
@@ -62,6 +68,27 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
     'index', 'grade', 'name', 'nationalId', 'isActive', 'actions'
   ]);
 
+  // Filter & Sort States
+  const [sortBy, setSortBy] = useState<string>('grade');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [gradeFilter, setGradeFilter] = useState<string>('all');
+  const [livingFilter, setLivingFilter] = useState<string>('all');
+  const [maritalFilter, setMaritalFilter] = useState<string>('all');
+  const [isFilterExpanded, setIsFilterExpanded] = useState<boolean>(false);
+  const filterRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (filterRef.current && !filterRef.current.contains(event.target as Node)) {
+        setIsFilterExpanded(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
   const allColumns = [
     { id: 'index', label: '#' },
     { id: 'grade', label: 'پایه تحصیلی' },
@@ -72,6 +99,7 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
     { id: 'birthPlace', label: 'اهل کجاست' },
     { id: 'birthDate', label: 'تاریخ تولد' },
     { id: 'maritalStatus', label: 'وضعیت تاهل' },
+    { id: 'childrenCount', label: 'تعداد فرزندان' },
     { id: 'livingStatus', label: 'سکونت' },
     { id: 'classicEducation', label: 'تحصیلات کلاسیک' },
     { id: 'howzaEntryYear', label: 'سال ورود به حوزه' },
@@ -207,6 +235,7 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
       birthPlace: '',
       birthDate: '',
       maritalStatus: 'مجرد',
+      childrenCount: 0,
       livingStatus: 'پدری',
       livingStatusOther: '',
       classicEducation: '',
@@ -264,6 +293,7 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
       'اهل کجاست': s.birthPlace || '',
       'تاریخ تولد': s.birthDate || '',
       'وضعیت تاهل': s.maritalStatus || '',
+      'تعداد فرزندان': s.childrenCount ?? 0,
       'سکونت': s.livingStatus || '',
       'تحصیلات کلاسیک': s.classicEducation || '',
       'سال ورود به حوزه': s.howzaEntryYear || '',
@@ -302,6 +332,7 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
             birthPlace: row.BirthPlace || row['اهل کجاست'] || row['محل تولد'] || '',
             birthDate: row.BirthDate || row['تاریخ تولد'] || '',
             maritalStatus: (row.MaritalStatus || row['وضعیت تاهل'] || 'مجرد') as any,
+            childrenCount: Number(row.ChildrenCount || row['تعداد فرزندان'] || 0),
             livingStatus: (row.LivingStatus || row['سکونت'] || 'پدری') as any,
             classicEducation: row.ClassicEducation || row['تحصیلات کلاسیک'] || '',
             howzaEntryYear: row.HowzaEntryYear || row['سال ورود به حوزه'] || '',
@@ -321,19 +352,94 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
     reader.readAsBinaryString(file);
   };
 
-  const filteredStudents = students.filter(s => 
-    s.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    s.nationalId?.includes(searchTerm)
-  );
+  // Extract unique grades dynamically
+  const availableGrades = Array.from(
+    new Set(students.map(s => s.grade).filter(Boolean))
+  ).sort((a, b) => (a || '').localeCompare(b || '', 'fa', { numeric: true }));
+
+  // Handle column header click for sorting
+  const handleSort = (columnId: string) => {
+    if (sortBy === columnId) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(columnId);
+      setSortOrder('asc');
+    }
+  };
+
+  const resetFilters = () => {
+    setSearchTerm('');
+    setGradeFilter('all');
+    setLivingFilter('all');
+    setMaritalFilter('all');
+    setSortBy('grade');
+    setSortOrder('asc');
+  };
+
+  const activeFilterCount = (gradeFilter !== 'all' ? 1 : 0) +
+    (livingFilter !== 'all' ? 1 : 0) +
+    (maritalFilter !== 'all' ? 1 : 0) +
+    (searchTerm ? 1 : 0);
+
+  const hasActiveFilters = activeFilterCount > 0;
+
+  const filteredStudents = students
+    .filter(s => {
+      const matchesSearch = 
+        !searchTerm ||
+        s.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+        s.nationalId?.includes(searchTerm) ||
+        s.phoneNumber?.includes(searchTerm);
+
+      const matchesGrade = gradeFilter === 'all' || s.grade === gradeFilter;
+
+      const matchesLiving = 
+        livingFilter === 'all' ? true :
+        livingFilter === 'خوابگاه' ? s.livingStatus === 'خوابگاه' :
+        livingFilter === 'غیرخوابگاه' ? s.livingStatus !== 'خوابگاه' :
+        s.livingStatus === livingFilter;
+
+      const matchesMarital = maritalFilter === 'all' || s.maritalStatus === maritalFilter;
+
+      return matchesSearch && matchesGrade && matchesLiving && matchesMarital;
+    })
+    .sort((a, b) => {
+      let cmp = 0;
+      if (sortBy === 'grade') {
+        const gA = a.grade || '99';
+        const gB = b.grade || '99';
+        cmp = gA.localeCompare(gB, 'fa', { numeric: true });
+      } else if (sortBy === 'name') {
+        cmp = (a.name || '').localeCompare(b.name || '', 'fa');
+      } else if (sortBy === 'maritalStatus') {
+        cmp = (a.maritalStatus || '').localeCompare(b.maritalStatus || '', 'fa');
+      } else if (sortBy === 'livingStatus') {
+        cmp = (a.livingStatus || '').localeCompare(b.livingStatus || '', 'fa');
+      } else if (sortBy === 'childrenCount') {
+        cmp = (a.childrenCount || 0) - (b.childrenCount || 0);
+      } else if (sortBy === 'tammomStatus') {
+        cmp = (a.tammomStatus || '').localeCompare(b.tammomStatus || '', 'fa');
+      } else if (sortBy === 'isActive') {
+        cmp = (a.isActive === b.isActive ? 0 : a.isActive ? -1 : 1);
+      } else if (sortBy === 'nationalId') {
+        cmp = (a.nationalId || '').localeCompare(b.nationalId || '');
+      }
+
+      if (cmp === 0) {
+        cmp = (a.name || '').localeCompare(b.name || '', 'fa');
+      }
+
+      return sortOrder === 'asc' ? cmp : -cmp;
+    });
 
   return (
     <div className="space-y-6" dir="rtl">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
         <div className="space-y-1">
           <h2 className="text-xl font-bold text-slate-800">
             {onlyActive ? 'کاربران فعال' : 'مدیریت کاربران'}
           </h2>
-          <p className="text-xs text-slate-400">فهرست طلاب پایه به همراه وضعیت تحصیلی</p>
+          <p className="text-xs text-slate-400">فهرست طلاب پایه به همراه وضعیت تحصیلی ({filteredStudents.length} نفر)</p>
         </div>
         
         <div className="flex flex-wrap items-center gap-3">
@@ -341,7 +447,7 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
             <input 
               type="text" 
-              placeholder="جستجوی نام یا کد ملی..." 
+              placeholder="جستجوی نام، کد ملی یا شماره..." 
               className="pr-9 pl-4 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-1 focus:ring-indigo-500 outline-none w-64 shadow-sm"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -412,18 +518,178 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
         </div>
       </div>
 
+      {/* Filter & Sort Bar */}
+      <div ref={filterRef} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden transition-all">
+        <div 
+          onClick={() => setIsFilterExpanded(!isFilterExpanded)}
+          className="p-4 flex items-center justify-between gap-2 cursor-pointer hover:bg-slate-50/80 transition-colors select-none"
+        >
+          <div className="flex items-center gap-2 text-xs font-black text-slate-700">
+            <Filter size={15} className="text-indigo-600" />
+            <span>فیلتر و مرتب‌سازی لیست</span>
+            {hasActiveFilters && (
+              <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-[10px] font-bold rounded-full">
+                {activeFilterCount} فیلتر فعال
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3">
+            {hasActiveFilters && (
+              <button 
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  resetFilters();
+                }}
+                className="text-[11px] font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1 transition-colors px-2 py-1 rounded hover:bg-rose-50"
+              >
+                <RotateCcw size={13} />
+                <span>بازنشانی فیلترها</span>
+              </button>
+            )}
+            <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600 bg-slate-100/90 px-3 py-1.5 rounded-lg border border-slate-200/80 hover:bg-slate-200/80 transition-colors">
+              <span>{isFilterExpanded ? 'بستن کشو' : 'فیلتر و مرتب‌سازی'}</span>
+              <ChevronDown size={14} className={cn("transition-transform duration-200 text-indigo-600", isFilterExpanded && "rotate-180")} />
+            </div>
+          </div>
+        </div>
+
+        <AnimatePresence>
+          {isFilterExpanded && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden border-t border-slate-100 bg-slate-50/50 p-4"
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
+                {/* Grade Filter */}
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1">پایه تحصیلی</label>
+                  <select 
+                    value={gradeFilter} 
+                    onChange={(e) => setGradeFilter(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  >
+                    <option value="all">همه پایه‌ها</option>
+                    {availableGrades.map(g => (
+                      <option key={g} value={g}>{g}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Living Status Filter */}
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1">وضعیت سکونت / خوابگاه</label>
+                  <select 
+                    value={livingFilter} 
+                    onChange={(e) => setLivingFilter(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  >
+                    <option value="all">همه موارد</option>
+                    <option value="خوابگاه">🏢 خوابگاهی</option>
+                    <option value="غیرخوابگاه">🏠 غیر خوابگاهی</option>
+                    <option value="پدری">پدری</option>
+                    <option value="شخصی">شخصی</option>
+                    <option value="اجاره ای">اجاره‌ای</option>
+                    <option value="سایر">سایر</option>
+                  </select>
+                </div>
+
+                {/* Marital Status Filter */}
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1">وضعیت تأهل</label>
+                  <select 
+                    value={maritalFilter} 
+                    onChange={(e) => setMaritalFilter(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  >
+                    <option value="all">همه وضعیت‌ها</option>
+                    <option value="مجرد">🌱 مجرد</option>
+                    <option value="متاهل">💍 متأهل</option>
+                  </select>
+                </div>
+
+                {/* Sort By Field */}
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1">مرتب‌سازی بر اساس</label>
+                  <select 
+                    value={sortBy} 
+                    onChange={(e) => setSortBy(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  >
+                    <option value="grade">پایه تحصیلی</option>
+                    <option value="name">نام و نام خانوادگی</option>
+                    <option value="livingStatus">وضعیت سکونت (خوابگاه)</option>
+                    <option value="maritalStatus">وضعیت تأهل</option>
+                    <option value="childrenCount">تعداد فرزندان</option>
+                    <option value="tammomStatus">وضعیت تعمم</option>
+                    <option value="isActive">وضعیت (فعال/غیرفعال)</option>
+                    <option value="nationalId">کد ملی</option>
+                  </select>
+                </div>
+
+                {/* Sort Direction Toggle */}
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1">جهت مرتب‌سازی</label>
+                  <button
+                    type="button"
+                    onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                    className="w-full px-3 py-2 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+                  >
+                    <ArrowUpDown size={14} />
+                    <span>{sortOrder === 'asc' ? 'صعودی (الف → ی)' : 'نزولی (ی → الف)'}</span>
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
         <table className="w-full text-right border-collapse min-w-max">
           <thead>
             <tr className="bg-slate-50 text-slate-500 border-b border-slate-100">
-              {allColumns.filter(c => visibleColumns.includes(c.id)).map(col => (
-                <th key={col.id} className={cn(
-                  "px-6 py-3 text-[11px] font-bold uppercase tracking-wider",
-                  col.id === 'actions' && "text-left"
-                )}>
-                  {col.label}
-                </th>
-              ))}
+              {allColumns.filter(c => visibleColumns.includes(c.id)).map(col => {
+                const sortableMap: Record<string, string> = {
+                  'grade': 'grade',
+                  'name': 'name',
+                  'nationalId': 'nationalId',
+                  'maritalStatus': 'maritalStatus',
+                  'childrenCount': 'childrenCount',
+                  'livingStatus': 'livingStatus',
+                  'tammomStatus': 'tammomStatus',
+                  'isActive': 'isActive'
+                };
+                const sortKey = sortableMap[col.id];
+                const isCurrentlySorted = sortKey && sortBy === sortKey;
+
+                return (
+                  <th 
+                    key={col.id} 
+                    onClick={() => sortKey && handleSort(sortKey)}
+                    className={cn(
+                      "px-6 py-3 text-[11px] font-bold uppercase tracking-wider select-none",
+                      sortKey && "cursor-pointer hover:text-indigo-600 transition-colors",
+                      col.id === 'actions' && "text-left"
+                    )}
+                  >
+                    <div className={cn("flex items-center gap-1.5", col.id === 'actions' && "justify-end")}>
+                      <span>{col.label}</span>
+                      {sortKey && (
+                        isCurrentlySorted ? (
+                          sortOrder === 'asc' ? <ArrowUp size={13} className="text-indigo-600 shrink-0" /> : <ArrowDown size={13} className="text-indigo-600 shrink-0" />
+                        ) : (
+                          <ArrowUpDown size={12} className="text-slate-300 opacity-50 hover:opacity-100 shrink-0" />
+                        )
+                      )}
+                    </div>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -488,6 +754,9 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
                   )}
                   {visibleColumns.includes('maritalStatus') && (
                     <td className="px-6 py-4 text-xs text-slate-600">{student.maritalStatus || '---'}</td>
+                  )}
+                  {visibleColumns.includes('childrenCount') && (
+                    <td className="px-6 py-4 text-xs text-slate-600">{student.childrenCount ?? 0}</td>
                   )}
                   {visibleColumns.includes('livingStatus') && (
                     <td className="px-6 py-4 text-xs text-slate-600">
@@ -687,6 +956,16 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
                       <option value="مجرد">مجرد</option>
                       <option value="متاهل">متاهل</option>
                     </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 mb-1">تعداد فرزندان</label>
+                    <input 
+                      type="number" 
+                      min="0"
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+                      value={newStudent.childrenCount ?? 0}
+                      onChange={(e) => setNewStudent({...newStudent, childrenCount: Math.max(0, parseInt(e.target.value) || 0)})}
+                    />
                   </div>
                   <div>
                     <label className="block text-[11px] font-bold text-slate-500 mb-1">سکونت</label>
