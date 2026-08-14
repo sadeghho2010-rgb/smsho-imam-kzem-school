@@ -64,6 +64,8 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
 
   const [showColumnFilter, setShowColumnFilter] = useState(false);
   const [studentToDelete, setStudentToDelete] = useState<Student | null>(null);
+  const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
   const [visibleColumns, setVisibleColumns] = useState<string[]>([
     'index', 'grade', 'name', 'nationalId', 'isActive', 'actions'
   ]);
@@ -277,6 +279,22 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
     }
   };
 
+  const confirmDeleteAllStudents = async () => {
+    setDeletingAll(true);
+    try {
+      const snapshot = await getDocs(collection(db, 'students'));
+      const deletePromises = snapshot.docs.map(docSnap => deleteDoc(doc(db, 'students', docSnap.id)));
+      await Promise.all(deletePromises);
+      setShowDeleteAllModal(false);
+      fetchStudents();
+    } catch (error: any) {
+      console.error("Error deleting all students:", error);
+      alert('خطا در پاکسازی اطلاعات: ' + (error.message || 'خطای نامشخص'));
+    } finally {
+      setDeletingAll(false);
+    }
+  };
+
   const handleExcelExport = () => {
     if (students.length === 0) {
       alert('لیستی برای خروجی وجود ندارد');
@@ -315,41 +333,105 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
 
     const reader = new FileReader();
     reader.onload = async (evt) => {
-      const bstr = evt.target?.result;
-      const wb = XLSX.read(bstr, { type: 'binary' });
-      const wsname = wb.SheetNames[0];
-      const ws = wb.Sheets[wsname];
-      const data = XLSX.utils.sheet_to_json(ws) as any[];
-
       try {
+        const buffer = evt.target?.result;
+        const wb = XLSX.read(buffer, { type: 'array' });
+        const wsname = wb.SheetNames[0];
+        if (!wsname) {
+          alert('فایل اکسل خالی یا نامعتبر است');
+          return;
+        }
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws) as any[];
+
+        if (!data || data.length === 0) {
+          alert('هیچ داده‌ای در فایل اکسل یافت نشد');
+          return;
+        }
+
         for (const row of data) {
+          const getString = (val: any) => (val !== undefined && val !== null) ? String(val).trim() : '';
+
+          const name = getString(row['نام و نام خانوادگی'] ?? row['نام'] ?? row.Name ?? row.name) || 'نامشخص';
+          const nationalId = getString(row['کد ملی'] ?? row.NationalId ?? row.nationalId);
+          const phoneNumber = getString(row['شماره تماس'] ?? row['تلفن'] ?? row.Phone ?? row.phone);
+          const grade = getString(row['پایه تحصیلی'] ?? row['پایه'] ?? row.Grade ?? row.grade);
+          const fatherOccupation = getString(row['شغل پدر'] ?? row.FatherOccupation);
+          const birthPlace = getString(row['اهل کجاست'] ?? row['محل تولد'] ?? row.BirthPlace);
+          const birthDate = getString(row['تاریخ تولد'] ?? row.BirthDate);
+          
+          const rawMarital = getString(row['وضعیت تاهل'] ?? row.MaritalStatus);
+          const maritalStatus = (rawMarital === 'متاهل' || rawMarital === 'متأهل') ? 'متاهل' : 'مجرد';
+          
+          const rawChildren = row['تعداد فرزندان'] ?? row.ChildrenCount;
+          const childrenCount = (rawChildren !== undefined && rawChildren !== null && !isNaN(Number(rawChildren))) ? Number(rawChildren) : 0;
+          
+          const rawLiving = getString(row['سکونت'] ?? row.LivingStatus);
+          let livingStatus: any = 'پدری';
+          if (['خوابگاه', 'اجاره ای', 'شخصی', 'پدری', 'سایر'].includes(rawLiving)) {
+            livingStatus = rawLiving;
+          } else if (rawLiving.includes('خوابگاه')) {
+            livingStatus = 'خوابگاه';
+          } else if (rawLiving.includes('اجاره')) {
+            livingStatus = 'اجاره ای';
+          } else if (rawLiving.includes('شخصی')) {
+            livingStatus = 'شخصی';
+          }
+
+          const classicEducation = getString(row['تحصیلات کلاسیک'] ?? row.ClassicEducation);
+          const howzaEntryYear = getString(row['سال ورود به حوزه'] ?? row.HowzaEntryYear);
+          const levelOneSchool = getString(row['مدرسه سطح یک'] ?? row.LevelOneSchool);
+          
+          const rawTammom = getString(row['وضعیت تعمم'] ?? row.TammomStatus);
+          let tammomStatus: any = 'غیر معمم';
+          if (['معمم', 'غیر معمم', 'در شرف تعمم'].includes(rawTammom)) {
+            tammomStatus = rawTammom;
+          }
+
+          const rawStatus = row['وضعیت'] ?? row.IsActive ?? row.isActive;
+          let isActive = true;
+          if (rawStatus !== undefined && rawStatus !== null) {
+            if (typeof rawStatus === 'boolean') {
+              isActive = rawStatus;
+            } else {
+              const strStatus = String(rawStatus).trim().toLowerCase();
+              if (strStatus === 'غیرفعال' || strStatus === 'غیر فعال' || strStatus === 'false' || strStatus === '0') {
+                isActive = false;
+              }
+            }
+          }
+
           await addDoc(collection(db, 'students'), {
-            name: row.Name || row['نام'] || row.name || 'نامشخص',
-            nationalId: row.NationalId || row['کد ملی'] || row.nationalId || '',
-            phoneNumber: row.Phone || row['تلفن'] || row.phone || '',
-            grade: row.Grade || row['پایه'] || row.grade || '',
-            fatherOccupation: row.FatherOccupation || row['شغل پدر'] || '',
-            birthPlace: row.BirthPlace || row['اهل کجاست'] || row['محل تولد'] || '',
-            birthDate: row.BirthDate || row['تاریخ تولد'] || '',
-            maritalStatus: (row.MaritalStatus || row['وضعیت تاهل'] || 'مجرد') as any,
-            childrenCount: Number(row.ChildrenCount || row['تعداد فرزندان'] || 0),
-            livingStatus: (row.LivingStatus || row['سکونت'] || 'پدری') as any,
-            classicEducation: row.ClassicEducation || row['تحصیلات کلاسیک'] || '',
-            howzaEntryYear: row.HowzaEntryYear || row['سال ورود به حوزه'] || '',
-            levelOneSchool: row.LevelOneSchool || row['مدرسه سطح یک'] || '',
-            tammomStatus: (row.TammomStatus || row['وضعیت تعمم'] || 'غیر معمم') as any,
-            isActive: false,
+            name,
+            nationalId,
+            phoneNumber,
+            grade,
+            fatherOccupation,
+            birthPlace,
+            birthDate,
+            maritalStatus,
+            childrenCount,
+            livingStatus,
+            classicEducation,
+            howzaEntryYear,
+            levelOneSchool,
+            tammomStatus,
+            isActive,
             createdAt: new Date().toISOString()
           });
         }
         fetchStudents();
-        alert('اطلاعات با موفقیت وارد شد');
+        alert('اطلاعات فایل اکسل با موفقیت وارد شد');
       } catch (error) {
         console.error("Error importing excel:", error);
-        alert('خطا در وارد کردن اطلاعات');
+        alert('خطا در خواندن یا ثبت اطلاعات فایل اکسل');
+      } finally {
+        if (e.target) {
+          e.target.value = '';
+        }
       }
     };
-    reader.readAsBinaryString(file);
+    reader.readAsArrayBuffer(file);
   };
 
   // Extract unique grades dynamically
@@ -477,6 +559,17 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
                 <span>وارد کردن اکسل</span>
                 <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleExcelImport} />
               </label>
+
+              {students.length > 0 && (
+                <button 
+                  onClick={() => setShowDeleteAllModal(true)}
+                  className="flex items-center gap-2 px-4 py-2 border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 hover:border-rose-300 text-xs font-bold rounded-lg transition-colors shadow-sm"
+                  title="حذف کامل تمامی کاربران"
+                >
+                  <Trash2 size={16} />
+                  <span>حذف همه کاربران</span>
+                </button>
+              )}
             </>
           )}
 
@@ -1092,6 +1185,55 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
                   className="px-4 py-2 bg-rose-600 text-white rounded-xl text-xs font-bold hover:bg-rose-700 transition-colors shadow-md shadow-rose-200"
                 >
                   حذف کاربر
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete All Confirmation Modal */}
+      <AnimatePresence>
+        {showDeleteAllModal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl p-6 max-w-md w-full space-y-4 shadow-2xl border border-slate-100 text-right"
+              dir="rtl"
+            >
+              <div className="w-12 h-12 bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center mx-auto mb-2">
+                <Trash2 size={24} />
+              </div>
+              <h3 className="text-lg font-bold text-slate-800 text-center">حذف همه‌جانبه تمامی کاربران</h3>
+              <p className="text-xs text-slate-600 text-center leading-relaxed">
+                آیا از حذف کامل تمامی لیست طلاب ({students.length} نفر) اطمینان دارید؟ 
+                <br /><strong className="text-rose-600 font-bold">این عملیات تمامی داده‌ها را از دیتابیس پاک کرده و غیرقابل بازگشت است!</strong>
+              </p>
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteAllModal(false)}
+                  disabled={deletingAll}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors"
+                >
+                  انصراف
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDeleteAllStudents}
+                  disabled={deletingAll}
+                  className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-2 shadow-sm"
+                >
+                  {deletingAll ? (
+                    <span>در حال پاکسازی...</span>
+                  ) : (
+                    <>
+                      <Trash2 size={16} />
+                      <span>بله، پاکسازی همه</span>
+                    </>
+                  )}
                 </button>
               </div>
             </motion.div>
