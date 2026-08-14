@@ -31,6 +31,7 @@ export interface Program {
   day?: string;
   time?: string;
   teacher?: string;
+  mentorId?: string;
 }
 
 export interface Enrollment {
@@ -89,6 +90,7 @@ export interface Todo {
   isResearchFollowUp?: boolean;
   isStudyFollowUp?: boolean;
   researchRecordId?: string;
+  mentorId?: string;
   createdAt?: string;
 }
 
@@ -98,6 +100,7 @@ export interface StudyPeriod {
   startDate: string;
   endDate: string;
   mandatoryHours: number;
+  mentorId?: string;
   createdAt: string;
 }
 

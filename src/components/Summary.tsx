@@ -48,6 +48,7 @@ import {
   Program, 
   Enrollment 
 } from '../types';
+import { useMentor } from '../context/MentorContext';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -64,6 +65,7 @@ interface SummaryProps {
 }
 
 export default function Summary({ onNavigate, initialStudentId }: SummaryProps = {}) {
+  const { filterStudents, currentMentorId, shahpooriFilter } = useMentor();
   const [students, setStudents] = useState<Student[]>([]);
   const [selectedStudentId, setSelectedStudentId] = useState<string>(initialStudentId || '');
   const [searchFilter, setSearchFilter] = useState('');
@@ -108,7 +110,8 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
     const fetchStudents = async () => {
       try {
         const snapshot = await getDocs(query(collection(db, 'students'), where('isActive', '==', true)));
-        const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Student));
+        const rawList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Student));
+        const list = filterStudents(rawList, true);
         list.sort((a, b) => a.name.localeCompare(b.name, 'fa'));
         setStudents(list);
 
@@ -121,7 +124,7 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
       }
     };
     fetchStudents();
-  }, []);
+  }, [currentMentorId, shahpooriFilter]);
 
   // Full App Export Function
   const handleExportFullData = async () => {
@@ -248,7 +251,7 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
       // @ts-ignore
       import('html2pdf.js').then((html2pdfModule) => {
         const html2pdf = html2pdfModule.default || html2pdfModule;
-        html2pdf().set(opt).from(pdfReportRef.current).save().then(() => {
+        (html2pdf as any)().set(opt).from(pdfReportRef.current).save().then(() => {
           setIsExportingPDF(false);
         }).catch((err: any) => {
           console.error("PDF export error:", err);

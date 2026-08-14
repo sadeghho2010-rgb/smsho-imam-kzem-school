@@ -11,10 +11,12 @@ import {
 import { collection, addDoc, getDocs, deleteDoc, doc, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Program, Student, Enrollment } from '../types';
+import { useMentor, getStudentMentorKey } from '../context/MentorContext';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function Programs() {
+  const { filterStudents, currentMentorId, currentMentor, shahpooriFilter } = useMentor();
   const [programs, setPrograms] = useState<Program[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
@@ -40,9 +42,38 @@ export default function Programs() {
       const sSnap = await getDocs(collection(db, 'students'));
       const eSnap = await getDocs(collection(db, 'enrollments'));
       
-      setPrograms(pSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Program)));
-      setStudents(sSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Student)));
-      setEnrollments(eSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Enrollment)));
+      const rawPrograms = pSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Program));
+      const rawStudents = sSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Student));
+      const rawEnrollments = eSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Enrollment));
+
+      setStudents(rawStudents);
+      setEnrollments(rawEnrollments);
+
+      // Filter programs based on mentor
+      const filteredP = rawPrograms.filter(p => {
+        if (currentMentorId === 'shahpoori') {
+          if (shahpooriFilter === 'all') return true;
+          if (p.mentorId) return p.mentorId === shahpooriFilter;
+          // Legacy check for Shahpoori
+          const enrolledIds = rawEnrollments.filter(e => e.programId === p.id).map(e => e.studentId);
+          const targetStudents = rawStudents.filter(s => s.isActive && getStudentMentorKey(s.grade) === shahpooriFilter);
+          return enrolledIds.some(id => targetStudents.some(ts => ts.id === id));
+        }
+
+        if (p.mentorId) {
+          return p.mentorId === currentMentorId;
+        }
+
+        // Legacy program without mentorId:
+        const enrolledIds = rawEnrollments.filter(e => e.programId === p.id).map(e => e.studentId);
+        const myStudents = filterStudents(rawStudents, true);
+        if (enrolledIds.length > 0) {
+          return enrolledIds.some(id => myStudents.some(ms => ms.id === id));
+        }
+        return false;
+      });
+
+      setPrograms(filteredP);
     } catch (error) {
       console.error("Error fetching programs:", error);
     } finally {
@@ -52,7 +83,7 @@ export default function Programs() {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [currentMentorId, shahpooriFilter]);
 
   const handleEnrollClick = (programId: string) => {
     const currentEnrollments = enrollments
@@ -99,7 +130,10 @@ export default function Programs() {
   const handleAddProgram = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await addDoc(collection(db, 'programs'), newProgram);
+      await addDoc(collection(db, 'programs'), {
+        ...newProgram,
+        mentorId: currentMentorId
+      });
       setShowAddModal(false);
       setNewProgram({ title: '', type: 'اصلی', day: '', time: '', teacher: '' });
       fetchData();
@@ -331,8 +365,7 @@ export default function Programs() {
 
               <div className="flex-1 overflow-y-auto mb-6 pr-2">
                 <div className="grid grid-cols-2 gap-3">
-                  {students
-                    .filter(s => s.isActive)
+                  {filterStudents(students, true)
                     .filter(s => s.name.toLowerCase().includes(enrollSearchTerm.toLowerCase()))
                     .map(student => {
                       const isSelected = selectedEnrollments.includes(student.id);

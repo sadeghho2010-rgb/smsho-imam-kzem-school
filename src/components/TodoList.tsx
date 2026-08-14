@@ -13,10 +13,12 @@ import {
 import { collection, addDoc, getDocs, deleteDoc, doc, updateDoc, query, orderBy } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Todo } from '../types';
+import { useMentor } from '../context/MentorContext';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function TodoList() {
+  const { currentMentorId, shahpooriFilter } = useMentor();
   const [todos, setTodos] = useState<Todo[]>([]);
   const [newTodo, setNewTodo] = useState('');
   const [loading, setLoading] = useState(true);
@@ -27,7 +29,20 @@ export default function TodoList() {
     try {
       const q = query(collection(db, 'todos'), orderBy('completed', 'asc'));
       const snapshot = await getDocs(q);
-      setTodos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Todo)));
+      const rawTodos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Todo));
+
+      const filteredTodos = rawTodos.filter(t => {
+        if (currentMentorId === 'shahpoori') {
+          if (shahpooriFilter === 'all') return true;
+          return t.mentorId === shahpooriFilter;
+        }
+        if (t.mentorId) {
+          return t.mentorId === currentMentorId;
+        }
+        return true;
+      });
+
+      setTodos(filteredTodos);
     } catch (error) {
       console.error("Error fetching todos:", error);
     } finally {
@@ -37,7 +52,7 @@ export default function TodoList() {
 
   useEffect(() => {
     fetchTodos();
-  }, []);
+  }, [currentMentorId, shahpooriFilter]);
 
   const handleAddTodo = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,6 +61,7 @@ export default function TodoList() {
       await addDoc(collection(db, 'todos'), {
         title: newTodo,
         completed: false,
+        mentorId: currentMentorId,
         createdAt: new Date().toISOString()
       });
       setNewTodo('');

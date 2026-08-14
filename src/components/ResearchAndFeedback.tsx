@@ -19,6 +19,7 @@ import {
 import { collection, addDoc, getDocs, query, where, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Student, ResearchRecord, ConversationArchive } from '../types';
+import { useMentor } from '../context/MentorContext';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -30,6 +31,7 @@ interface ResearchAndFeedbackProps {
 }
 
 export default function ResearchAndFeedback({ initialStudentId }: ResearchAndFeedbackProps = {}) {
+  const { filterStudents, currentMentorId, shahpooriFilter } = useMentor();
   const [students, setStudents] = useState<Student[]>([]);
   const [selectedStudentId, setSelectedStudentId] = useState<string>(initialStudentId || '');
   const [loading, setLoading] = useState(false);
@@ -51,10 +53,11 @@ export default function ResearchAndFeedback({ initialStudentId }: ResearchAndFee
   useEffect(() => {
     const fetchStudents = async () => {
       const snapshot = await getDocs(query(collection(db, 'students'), where('isActive', '==', true)));
-      setStudents(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Student)));
+      const raw = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Student));
+      setStudents(filterStudents(raw, true));
     };
     fetchStudents();
-  }, []);
+  }, [currentMentorId, shahpooriFilter]);
 
   const [archives, setArchives] = useState<ConversationArchive[]>([]);
   const [showArchiveModal, setShowArchiveModal] = useState(false);

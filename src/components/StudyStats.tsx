@@ -41,6 +41,7 @@ import {
 import { collection, addDoc, updateDoc, deleteDoc, getDocs, query, where, orderBy, limit, doc, getDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Student, StudyPeriod, PeriodicStudyLog } from '../types';
+import { useMentor, getStudentMentorKey } from '../context/MentorContext';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import DatePicker from "react-multi-date-picker";
@@ -65,6 +66,7 @@ interface StudyStatsProps {
 }
 
 export default function StudyStats({ initialStudentId }: StudyStatsProps = {}) {
+  const { filterStudents, currentMentorId, shahpooriFilter } = useMentor();
   const [students, setStudents] = useState<Student[]>([]);
   const [periods, setPeriods] = useState<StudyPeriod[]>([]);
   const [allLogs, setAllLogs] = useState<PeriodicStudyLog[]>([]);
@@ -184,7 +186,7 @@ export default function StudyStats({ initialStudentId }: StudyStatsProps = {}) {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [currentMentorId, shahpooriFilter]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -195,17 +197,50 @@ export default function StudyStats({ initialStudentId }: StudyStatsProps = {}) {
         getDocs(collection(db, 'periodic_study_logs'))
       ]);
       
-      const sData = sSnap.docs.map(d => ({ id: d.id, ...d.data() } as Student));
-      const pData = pSnap.docs.map(d => ({ id: d.id, ...d.data() } as StudyPeriod));
+      const sDataRaw = sSnap.docs.map(d => ({ id: d.id, ...d.data() } as Student));
+      const sData = filterStudents(sDataRaw, true);
+      const pDataRaw = pSnap.docs.map(d => ({ id: d.id, ...d.data() } as StudyPeriod));
       const allL = lSnap.docs.map(d => ({ id: d.id, ...d.data() } as PeriodicStudyLog));
+
+      // Filter periods based on mentor
+      const filteredPeriods = pDataRaw.filter(p => {
+        if (currentMentorId === 'shahpoori') {
+          if (shahpooriFilter === 'all') return true;
+          if (p.mentorId) return p.mentorId === shahpooriFilter;
+          const periodLogs = allL.filter(l => l.periodId === p.id && l.hours > 0);
+          const targetStudentIds = sDataRaw.filter(s => s.isActive && getStudentMentorKey(s.grade) === shahpooriFilter).map(s => s.id);
+          return periodLogs.some(l => targetStudentIds.includes(l.studentId));
+        }
+
+        if (p.mentorId) {
+          return p.mentorId === currentMentorId;
+        }
+
+        // Legacy period without mentorId
+        const periodLogs = allL.filter(l => l.periodId === p.id && l.hours > 0);
+        const myStudentIds = sData.map(s => s.id);
+        if (periodLogs.length > 0) {
+          return periodLogs.some(l => myStudentIds.includes(l.studentId));
+        }
+        return false;
+      });
       
       setStudents(sData);
-      setPeriods(pData);
+      setPeriods(filteredPeriods);
       setAllLogs(allL);
       
-      if (pData.length > 0 && !selectedPeriodId) {
-        setSelectedPeriodId(pData[0].id);
-        setLogs(allL.filter(l => l.periodId === pData[0].id));
+      if (filteredPeriods.length > 0 && !selectedPeriodId) {
+        setSelectedPeriodId(filteredPeriods[0].id);
+        setLogs(allL.filter(l => l.periodId === filteredPeriods[0].id));
+      } else if (filteredPeriods.length > 0 && selectedPeriodId) {
+        const stillExists = filteredPeriods.some(fp => fp.id === selectedPeriodId);
+        if (!stillExists) {
+          setSelectedPeriodId(filteredPeriods[0].id);
+          setLogs(allL.filter(l => l.periodId === filteredPeriods[0].id));
+        }
+      } else if (filteredPeriods.length === 0) {
+        setSelectedPeriodId(null);
+        setLogs([]);
       }
     } catch (error) {
       console.error("Error fetching study data:", error);
@@ -343,6 +378,7 @@ export default function StudyStats({ initialStudentId }: StudyStatsProps = {}) {
           startDate,
           endDate,
           mandatoryHours: mandatoryInHours,
+          mentorId: currentMentorId,
           createdAt: new Date().toISOString()
         });
 

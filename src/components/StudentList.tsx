@@ -21,6 +21,7 @@ import * as XLSX from 'xlsx';
 import { collection, addDoc, getDocs, updateDoc, doc, deleteDoc, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Student } from '../types';
+import { useMentor } from '../context/MentorContext';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -30,6 +31,7 @@ interface StudentListProps {
 }
 
 export default function StudentList({ onlyActive = false, initialStudentId }: StudentListProps) {
+  const { filterStudents, getMentorForStudent, currentMentor } = useMentor();
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -437,7 +439,7 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
   // Extract unique grades dynamically
   const availableGrades = Array.from(
     new Set(students.map(s => s.grade).filter(Boolean))
-  ).sort((a, b) => (a || '').localeCompare(b || '', 'fa', { numeric: true }));
+  ).sort((a, b) => String(a || '').localeCompare(String(b || ''), 'fa', { numeric: true }));
 
   // Handle column header click for sorting
   const handleSort = (columnId: string) => {
@@ -465,7 +467,9 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
 
   const hasActiveFilters = activeFilterCount > 0;
 
-  const filteredStudents = students
+  const mentorFilteredStudents = filterStudents(students, onlyActive);
+
+  const filteredStudents = mentorFilteredStudents
     .filter(s => {
       const matchesSearch = 
         !searchTerm ||
@@ -802,9 +806,23 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
                   )}
                   {visibleColumns.includes('grade') && (
                     <td className="px-6 py-4">
-                      <span className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[10px] rounded-full border border-slate-200">
-                        {student.grade || 'نامشخص'}
-                      </span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-full border border-slate-200 shrink-0">
+                          {student.grade || 'نامشخص'}
+                        </span>
+                        {(() => {
+                          const mInfo = getMentorForStudent(student.grade);
+                          if (mInfo) {
+                            return (
+                              <span className={cn("px-2 py-0.5 text-[10px] font-black rounded-full border flex items-center gap-1 shrink-0", mInfo.badgeBg, mInfo.badgeText, mInfo.badgeBorder)}>
+                                <span className={cn("w-1.5 h-1.5 rounded-full", mInfo.dotColor)}></span>
+                                <span>{mInfo.name}</span>
+                              </span>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
                     </td>
                   )}
                   {visibleColumns.includes('name') && (

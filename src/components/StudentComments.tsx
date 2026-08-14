@@ -24,6 +24,7 @@ import {
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Student, StudentComment, CommentPriority, OralExam, OralExamSubjectType } from '../types';
+import { useMentor } from '../context/MentorContext';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -62,6 +63,7 @@ interface StudentCommentsProps {
 }
 
 export default function StudentComments({ initialStudentId }: StudentCommentsProps = {}) {
+  const { filterStudents, currentMentorId, shahpooriFilter } = useMentor();
   const [students, setStudents] = useState<Student[]>([]);
   const [comments, setComments] = useState<StudentComment[]>([]);
   const [oralExams, setOralExams] = useState<OralExam[]>([]);
@@ -142,7 +144,7 @@ export default function StudentComments({ initialStudentId }: StudentCommentsPro
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [currentMentorId, shahpooriFilter]);
 
   useEffect(() => {
     if (initialStudentId && students.length > 0) {
@@ -156,7 +158,8 @@ export default function StudentComments({ initialStudentId }: StudentCommentsPro
     try {
       // Fetch students
       const studentsSnap = await getDocs(collection(db, 'students'));
-      const studentsList = studentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Student));
+      const studentsListRaw = studentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Student));
+      const studentsList = filterStudents(studentsListRaw, true);
       studentsList.sort((a, b) => a.name.localeCompare(b.name, 'fa'));
       setStudents(studentsList);
 
