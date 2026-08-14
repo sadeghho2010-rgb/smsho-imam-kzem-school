@@ -1,5 +1,5 @@
-import { supabase } from './supabase';
-import { collection, getDocs, setDoc, doc, deleteDoc } from 'firebase/firestore';
+import { supabase, uploadBase64ToSupabase } from './supabase';
+import { collection, getDocs, setDoc, doc } from 'firebase/firestore';
 import { db } from './firebase';
 
 export interface SyncResult {
@@ -87,8 +87,28 @@ export async function syncCollection(collectionName: string): Promise<{ pushed: 
     }
 
     // 4. Push from Laptop -> Supabase (if Laptop has items missing in Supabase, DO NOT DELETE LAPTOP DATA!)
-    for (const [localId, localItem] of localMap.entries()) {
-      if (!sbMap.has(localId)) {
+    for (const [localId, itemToSync] of localMap.entries()) {
+      let localItem = { ...itemToSync };
+
+      // If student has an offline Base64 photo, upload it to Supabase Storage when online
+      if (collectionName === 'students' && localItem.photoUrl && localItem.photoUrl.startsWith('data:image/')) {
+        try {
+          const publicUrl = await uploadBase64ToSupabase(localItem.photoUrl, localItem.id);
+          if (publicUrl) {
+            localItem.photoUrl = publicUrl;
+            // Update Firestore with new public URL
+            try {
+              await setDoc(doc(db, 'students', localId), { photoUrl: publicUrl }, { merge: true });
+            } catch (e) {
+              console.warn("Firestore update photoUrl error:", e);
+            }
+          }
+        } catch (e) {
+          console.warn("Error uploading offline student photo during sync:", e);
+        }
+      }
+
+      if (!sbMap.has(localId) || localItem.photoUrl !== sbMap.get(localId)?.photoUrl) {
         try {
           const { error: upsertErr } = await supabase
             .from(collectionName)

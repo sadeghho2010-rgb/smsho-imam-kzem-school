@@ -22,7 +22,7 @@ import * as XLSX from 'xlsx';
 import { collection, addDoc, getDocs, updateDoc, doc, deleteDoc, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { uploadImageToSupabase } from '../lib/supabase';
-import { syncCollection } from '../lib/syncEngine';
+import { syncCollection, saveLocalLaptopBackup, getLocalLaptopBackup } from '../lib/syncEngine';
 import { Student } from '../types';
 import { useMentor } from '../context/MentorContext';
 import { cn } from '../lib/utils';
@@ -129,13 +129,34 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
   const fetchStudents = async () => {
     setLoading(true);
     try {
-      const q = onlyActive 
-        ? query(collection(db, 'students'), where('isActive', '==', true))
-        : collection(db, 'students');
-      
-      const snapshot = await getDocs(q);
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Student));
-      
+      let data: Student[] = [];
+      try {
+        const q = onlyActive 
+          ? query(collection(db, 'students'), where('isActive', '==', true))
+          : collection(db, 'students');
+        
+        const snapshot = await getDocs(q);
+        data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Student));
+      } catch (err) {
+        console.warn("Firestore fetch offline, loading laptop backup:", err);
+        data = getLocalLaptopBackup('students');
+        if (onlyActive) {
+          data = data.filter((s: Student) => s.isActive);
+        }
+      }
+
+      if (!data || data.length === 0) {
+        const backup = getLocalLaptopBackup('students');
+        if (backup && backup.length > 0) {
+          data = backup;
+          if (onlyActive) {
+            data = data.filter((s: Student) => s.isActive);
+          }
+        }
+      } else {
+        saveLocalLaptopBackup('students', data);
+      }
+
       // Sort by grade (numerically if possible)
       const sortedData = data.sort((a, b) => {
         const gradeA = a.grade || '99';
@@ -172,17 +193,44 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
           Object.entries(updateData).filter(([_, v]) => v !== undefined)
         );
         
-        await updateDoc(doc(db, 'students', editingStudent.id), cleanData);
+        try {
+          await updateDoc(doc(db, 'students', editingStudent.id), cleanData);
+        } catch (err) {
+          console.warn("Firestore update offline, saved to laptop storage:", err);
+        }
+
+        // Update local laptop backup
+        const currentBackup = getLocalLaptopBackup('students');
+        const updatedBackup = currentBackup.map((s: Student) => s.id === editingStudent.id ? { ...s, ...cleanData } : s);
+        saveLocalLaptopBackup('students', updatedBackup);
+
         alert('اطلاعات با موفقیت بروزرسانی شد');
       } else {
-        await addDoc(collection(db, 'students'), {
+        const studentToSave = {
           ...newStudent,
           isActive: false,
           createdAt: new Date().toISOString()
-        });
+        };
+
+        let newId = 'student_' + Date.now();
+        try {
+          const docRef = await addDoc(collection(db, 'students'), studentToSave);
+          newId = docRef.id;
+        } catch (err) {
+          console.warn("Firestore addDoc offline, saved to laptop storage:", err);
+        }
+
+        // Save to local laptop backup immediately
+        const currentBackup = getLocalLaptopBackup('students');
+        currentBackup.push({ id: newId, ...studentToSave });
+        saveLocalLaptopBackup('students', currentBackup);
+
         alert('طلبه جدید با موفقیت ثبت شد');
       }
-      syncCollection('students');
+      
+      if (navigator.onLine) {
+        syncCollection('students');
+      }
       resetForm();
       setShowAddModal(false);
       fetchStudents();
