@@ -65,7 +65,11 @@ export async function uploadImageToSupabase(file: File, studentId?: string): Pro
       });
 
     if (error) {
-      console.error("Error uploading to Supabase Storage:", error);
+      if (error.message?.includes('row-level security') || (error as any).statusCode === '42501') {
+        console.warn("Supabase Storage RLS policy notice: Upload blocked by Supabase storage permissions. Falling back to storing compressed image on laptop.", error.message);
+      } else {
+        console.warn("Supabase Storage upload warning:", error.message);
+      }
       return { publicUrl: null, localDataUrl };
     }
 
