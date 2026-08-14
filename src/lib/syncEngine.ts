@@ -31,6 +31,83 @@ export function getLocalLaptopBackup(collectionName: string): any[] {
 }
 
 /**
+ * Dual fetch helper: First returns local backup instantly, then queries Supabase & Firestore
+ * Supabase works directly in Iran without VPN!
+ */
+export async function fetchDataDual(collectionName: string): Promise<any[]> {
+  const localBackup = getLocalLaptopBackup(collectionName);
+  
+  if (!navigator.onLine) {
+    return localBackup;
+  }
+
+  try {
+    // 1. Query Supabase (REST API works in Iran without VPN!)
+    const { data: sbData, error: sbErr } = await supabase.from(collectionName).select('*');
+    if (!sbErr && sbData && sbData.length > 0) {
+      // Merge with local backup so offline items aren't lost
+      const sbMap = new Map(sbData.map((item: any) => [item.id, item]));
+      for (const item of localBackup) {
+        if (!sbMap.has(item.id)) {
+          sbData.push(item);
+        }
+      }
+      saveLocalLaptopBackup(collectionName, sbData);
+      return sbData;
+    }
+
+    // 2. Fallback to Firestore with timeout
+    const snap = await Promise.race([
+      getDocs(collection(db, collectionName)),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Firestore timeout')), 1200))
+    ]);
+    const fsItems = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (fsItems && fsItems.length > 0) {
+      saveLocalLaptopBackup(collectionName, fsItems);
+      return fsItems;
+    }
+  } catch (err) {
+    console.warn(`Dual fetch fallback to local storage for ${collectionName}:`, err);
+  }
+
+  return localBackup;
+}
+
+/**
+ * Dual save helper: Saves to local laptop storage immediately, then pushes to Supabase & Firestore
+ */
+export async function saveDataDual(collectionName: string, item: any): Promise<void> {
+  // 1. Save to LocalStorage immediately
+  const localItems = getLocalLaptopBackup(collectionName);
+  const idx = localItems.findIndex((x: any) => x.id === item.id);
+  if (idx >= 0) {
+    localItems[idx] = { ...localItems[idx], ...item };
+  } else {
+    localItems.push(item);
+  }
+  saveLocalLaptopBackup(collectionName, localItems);
+
+  // 2. Push to Supabase if online (Works in Iran without VPN!)
+  if (navigator.onLine) {
+    try {
+      await supabase.from(collectionName).upsert(item);
+    } catch (e) {
+      console.warn("Supabase upsert notice:", e);
+    }
+
+    // 3. Push to Firestore in background
+    try {
+      await Promise.race([
+        setDoc(doc(db, collectionName, item.id), item, { merge: true }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore timeout')), 1000))
+      ]);
+    } catch (e) {
+      console.warn("Firestore setDoc notice:", e);
+    }
+  }
+}
+
+/**
  * Sync a specific collection between local laptop storage (Firestore/LocalStorage) and Supabase
  * Ensures NO local data is deleted if laptop has extra records; pushes them to Supabase!
  */

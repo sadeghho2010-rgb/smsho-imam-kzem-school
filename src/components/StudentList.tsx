@@ -22,7 +22,7 @@ import * as XLSX from 'xlsx';
 import { collection, addDoc, getDocs, updateDoc, doc, deleteDoc, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { uploadImageToSupabase } from '../lib/supabase';
-import { syncCollection, saveLocalLaptopBackup, getLocalLaptopBackup } from '../lib/syncEngine';
+import { syncCollection, saveLocalLaptopBackup, getLocalLaptopBackup, fetchDataDual, saveDataDual } from '../lib/syncEngine';
 import { Student } from '../types';
 import { useMentor } from '../context/MentorContext';
 import { cn } from '../lib/utils';
@@ -127,54 +127,22 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
   };
 
   const fetchStudents = async () => {
-    setLoading(true);
+    // 1. Instant load from local laptop backup
+    const initialBackup = getLocalLaptopBackup('students');
+    if (initialBackup && initialBackup.length > 0) {
+      let filtered = onlyActive ? initialBackup.filter((s: Student) => s.isActive) : initialBackup;
+      filtered.sort((a, b) => (a.grade || '99').localeCompare(b.grade || '99', 'fa', { numeric: true }));
+      setStudents(filtered);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
     try {
-      let data: Student[] = [];
-      if (navigator.onLine) {
-        try {
-          const q = onlyActive 
-            ? query(collection(db, 'students'), where('isActive', '==', true))
-            : collection(db, 'students');
-          
-          const snapshot = await Promise.race([
-            getDocs(q),
-            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Network timeout')), 1200))
-          ]);
-          data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Student));
-        } catch (err) {
-          console.warn("Firestore fetch offline/timeout, loading laptop backup:", err);
-          data = getLocalLaptopBackup('students');
-          if (onlyActive) {
-            data = data.filter((s: Student) => s.isActive);
-          }
-        }
-      } else {
-        data = getLocalLaptopBackup('students');
-        if (onlyActive) {
-          data = data.filter((s: Student) => s.isActive);
-        }
-      }
-
-      if (!data || data.length === 0) {
-        const backup = getLocalLaptopBackup('students');
-        if (backup && backup.length > 0) {
-          data = backup;
-          if (onlyActive) {
-            data = data.filter((s: Student) => s.isActive);
-          }
-        }
-      } else {
-        saveLocalLaptopBackup('students', data);
-      }
-
-      // Sort by grade (numerically if possible)
-      const sortedData = data.sort((a, b) => {
-        const gradeA = a.grade || '99';
-        const gradeB = b.grade || '99';
-        return gradeA.localeCompare(gradeB, 'fa', { numeric: true });
-      });
-      
-      setStudents(sortedData);
+      const data = await fetchDataDual('students');
+      let filtered = onlyActive ? data.filter((s: Student) => s.isActive) : data;
+      filtered.sort((a, b) => (a.grade || '99').localeCompare(b.grade || '99', 'fa', { numeric: true }));
+      setStudents(filtered);
     } catch (error) {
       console.error("Error fetching students:", error);
     } finally {
@@ -197,63 +165,21 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
       if (editingStudent) {
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { id, createdAt, ...updateData } = newStudent as Student;
-        
-        // Clean data for Firestore
         const cleanData = Object.fromEntries(
           Object.entries(updateData).filter(([_, v]) => v !== undefined)
         );
-        
-        if (navigator.onLine) {
-          try {
-            await Promise.race([
-              updateDoc(doc(db, 'students', editingStudent.id), cleanData),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('Network timeout')), 1000))
-            ]);
-          } catch (err) {
-            console.warn("Firestore update offline/timeout, saved to laptop storage:", err);
-          }
-        }
-
-        // Update local laptop backup
-        const currentBackup = getLocalLaptopBackup('students');
-        const updatedBackup = currentBackup.map((s: Student) => 
-          s.id === editingStudent.id ? { ...s, ...cleanData } : s
-        );
-        saveLocalLaptopBackup('students', updatedBackup);
-
+        const itemToSave = { id: editingStudent.id, ...cleanData };
+        await saveDataDual('students', itemToSave);
         alert('اطلاعات با موفقیت بروزرسانی شد');
       } else {
+        const newId = 'student_' + Date.now();
         const studentToSave = {
+          id: newId,
           ...newStudent,
           isActive: false,
           createdAt: new Date().toISOString()
         };
-
-        let newId = 'student_' + Date.now();
-        if (navigator.onLine) {
-          try {
-            const docRef = await Promise.race([
-              addDoc(collection(db, 'students'), studentToSave),
-              new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Network timeout')), 1000))
-            ]);
-            if (docRef && docRef.id) {
-              newId = docRef.id;
-            }
-          } catch (err) {
-            console.warn("Firestore addDoc offline/timeout, saved to laptop storage:", err);
-          }
-        }
-
-        // Save to local laptop backup immediately
-        const currentBackup = getLocalLaptopBackup('students');
-        const existingIdx = currentBackup.findIndex((s: Student) => s.id === newId);
-        if (existingIdx >= 0) {
-          currentBackup[existingIdx] = { id: newId, ...studentToSave };
-        } else {
-          currentBackup.push({ id: newId, ...studentToSave });
-        }
-        saveLocalLaptopBackup('students', currentBackup);
-
+        await saveDataDual('students', studentToSave);
         alert('طلبه جدید با موفقیت ثبت شد');
       }
       
@@ -264,8 +190,8 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
       setShowAddModal(false);
       fetchStudents();
     } catch (error: any) {
-      console.error("Error adding/updating student:", error);
-      alert('خطا در ثبت اطلاعات: ' + (error.message || 'خطای نامشخص'));
+      console.error("Error saving student:", error);
+      alert('خطا در ذخیره اطلاعات: ' + (error.message || 'خطای نامشخص'));
     }
   };
 
