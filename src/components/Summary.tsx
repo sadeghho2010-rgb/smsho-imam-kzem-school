@@ -48,6 +48,7 @@ import {
   Enrollment 
 } from '../types';
 import { useMentor } from '../context/MentorContext';
+import { sendChatMessage } from '../lib/geminiService';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -495,26 +496,17 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
         }
       };
 
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          studentData: fullContext,
-          history: historyPayload,
-          message: messageText,
-          customApiKey: customApiKey || undefined
-        })
+      const replyText = await sendChatMessage({
+        studentData: fullContext,
+        history: historyPayload,
+        message: messageText,
+        customApiKey: customApiKey || undefined
       });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'خطا در دریافت پاسخ هوش مصنوعی');
-      }
 
       const botMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'model',
-        content: data.reply || 'پاسخی دریافت نشد.',
+        content: replyText || 'پاسخی دریافت نشد.',
         timestamp: new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })
       };
 
@@ -524,7 +516,7 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
       const errorMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'model',
-        content: `⚠️ خطا: ${err.message || 'مشکلی در برقراری ارتباط با Gemini 3 Flash پیش آمد.'}`,
+        content: `⚠️ ${err.message || 'مشکلی در برقراری ارتباط با هوش مصنوعی پیش آمد.'}`,
         timestamp: new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })
       };
       setChatMessages(prev => [...prev, errorMsg]);

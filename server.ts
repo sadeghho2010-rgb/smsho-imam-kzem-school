@@ -44,10 +44,23 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json({ limit: '10mb' }));
+  // JSON body parser with generous limit
+  app.use(express.json({ limit: '20mb' }));
+
+  // CORS and pre-flight handling
+  app.use((req, res, next) => {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(200);
+    }
+    next();
+  });
 
   // API Route for Gemini Multi-turn Chat
   app.post("/api/chat", async (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
     try {
       const { studentData, history = [], message, customApiKey } = req.body;
       const client = getGenAIClient(customApiKey);
@@ -86,15 +99,16 @@ async function startServer() {
         }
       });
 
-      res.json({ reply: response.text });
+      return res.json({ reply: response.text });
     } catch (error: any) {
       console.error("Gemini Chat Error:", error);
-      res.status(500).json({ error: error.message || "خطا در برقراری ارتباط با هوش مصنوعی" });
+      return res.status(500).json({ error: error.message || "خطا در برقراری ارتباط با هوش مصنوعی" });
     }
   });
 
   // API Route for Gemini Analysis
   app.post("/api/analyze", async (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
     try {
       const { studentData, query, customApiKey } = req.body;
       const client = getGenAIClient(customApiKey);
@@ -116,10 +130,10 @@ async function startServer() {
         contents: prompt,
       });
 
-      res.json({ analysis: response.text });
+      return res.json({ analysis: response.text });
     } catch (error: any) {
       console.error("Gemini Analysis Error:", error);
-      res.status(500).json({ error: error.message || "Failed to analyze student data" });
+      return res.status(500).json({ error: error.message || "Failed to analyze student data" });
     }
   });
 
@@ -144,4 +158,5 @@ async function startServer() {
 }
 
 startServer();
+
 
