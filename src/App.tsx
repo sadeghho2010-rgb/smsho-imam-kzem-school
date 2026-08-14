@@ -14,10 +14,9 @@ import Summary from './components/Summary';
 import BackupAndRestore from './components/BackupAndRestore';
 import TodoList from './components/TodoList';
 import StudentComments from './components/StudentComments';
-import MentorSelectorModal from './components/MentorSelectorModal';
 import { MentorProvider, useMentor } from './context/MentorContext';
 import { motion, AnimatePresence } from 'motion/react';
-import { Menu, X, ChevronDown, UserCheck, ShieldCheck, Filter, Users, Layers } from 'lucide-react';
+import { Menu, X, ShieldCheck, Layers } from 'lucide-react';
 import { cn } from './lib/utils';
 
 function AppContent() {
@@ -29,8 +28,7 @@ function AppContent() {
     currentMentor, 
     currentMentorId, 
     shahpooriFilter, 
-    setShahpooriFilter, 
-    setIsMentorModalOpen 
+    setShahpooriFilter 
   } = useMentor();
 
   useEffect(() => {
@@ -76,9 +74,6 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex font-vazir relative overflow-x-hidden" dir="rtl">
-      {/* Mentor Selection Modal */}
-      <MentorSelectorModal />
-
       {/* Sidebar Overlay (Drawer Backdrop) */}
       <AnimatePresence>
         {isSidebarOpen && (
@@ -122,7 +117,7 @@ function AppContent() {
                    activeTab === 'attendance' ? 'حضور و غیاب' :
                    activeTab === 'comments' ? 'نظرات و صحبت‌ها' :
                    activeTab === 'stats' ? 'آمار و گزارشات' :
-                   activeTab === 'summary' ? 'جمع‌بندی نهایی' : 'پشتیبان‌گیری و بازیابی داده‌ها'}
+                   activeTab === 'summary' ? 'جمع‌بندی نهایی' : 'پشتیبان‌گیری'}
                 </h2>
                 {activeTab !== 'students' && (
                   <span className="text-[10px] text-slate-400 font-medium">
@@ -135,26 +130,8 @@ function AppContent() {
               </div>
             </div>
 
-            {/* Current Mentor Selector Badge */}
+            {/* Top Right Header Space */}
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setIsMentorModalOpen(true)}
-                className="flex items-center gap-2.5 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl transition-all shadow-sm hover:border-slate-300"
-                title="کلیک کنید تا کاربر/استاد جاری را تغییر دهید"
-              >
-                <div className={cn("w-7 h-7 rounded-lg text-white font-black text-xs flex items-center justify-center shrink-0 shadow-sm", currentMentor.avatarBg)}>
-                  {currentMentor.name.split(' ')[1]?.[0] || 'ا'}
-                </div>
-                <div className="text-right hidden sm:block">
-                  <p className="text-xs font-bold text-slate-800 leading-tight flex items-center gap-1">
-                    {currentMentor.name}
-                    {currentMentor.isHeadManager && <ShieldCheck size={12} className="text-amber-600 inline" />}
-                  </p>
-                  <p className="text-[10px] text-slate-500 font-medium leading-none mt-0.5">{currentMentor.role}</p>
-                </div>
-                <ChevronDown size={14} className="text-slate-400 mr-0.5" />
-              </button>
             </div>
           </div>
 

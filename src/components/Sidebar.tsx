@@ -30,7 +30,7 @@ const menuItems = [
   { id: 'attendance', label: 'حضور و غیاب', icon: CheckSquare },
   { id: 'comments', label: 'نظرات و صحبت‌ها', icon: MessageSquare },
   { id: 'summary', label: 'جمع‌بندی و هوش مصنوعی', icon: BrainCircuit },
-  { id: 'backup', label: 'پشتیبان‌گیری و بازیابی', icon: HardDrive },
+  { id: 'backup', label: 'پشتیبان‌گیری', icon: HardDrive },
 ];
 
 export default function Sidebar({ activeTab, setActiveTab, isOpen }: SidebarProps) {
@@ -47,24 +47,27 @@ export default function Sidebar({ activeTab, setActiveTab, isOpen }: SidebarProp
         <h1 className="text-lg font-bold text-slate-800 truncate">مدیریت طلاب</h1>
       </div>
       <nav className="flex-1 p-4 overflow-y-auto space-y-1">
-        {menuItems.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => setActiveTab(item.id)}
-            className={cn(
-              "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 text-right group",
-              activeTab === item.id 
-                ? "bg-indigo-50 text-indigo-700 font-medium" 
-                : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
-            )}
-          >
-            <span className={cn(
-              "w-2 h-2 rounded-full transition-all shrink-0",
-              activeTab === item.id ? "bg-indigo-600 scale-125" : "bg-slate-300 group-hover:bg-slate-400"
-            )}></span>
-            <span className="text-sm">{item.label}</span>
-          </button>
-        ))}
+        {menuItems.map((item) => {
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.id}
+              onClick={() => setActiveTab(item.id)}
+              className={cn(
+                "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 text-right group",
+                activeTab === item.id 
+                  ? "bg-indigo-50 text-indigo-700 font-bold" 
+                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+              )}
+            >
+              <Icon size={18} className={cn(
+                "shrink-0 transition-colors",
+                activeTab === item.id ? "text-indigo-600" : "text-slate-400 group-hover:text-slate-600"
+              )} />
+              <span className="text-sm">{item.label}</span>
+            </button>
+          );
+        })}
       </nav>
       <div className="p-4 border-t border-slate-100">
         <div className="bg-slate-900 text-white rounded-xl p-3 text-[11px]">
