@@ -34,8 +34,9 @@ import {
   FileText,
   Printer
 } from 'lucide-react';
-import { collection, getDocs, query, where, writeBatch, doc } from 'firebase/firestore';
+import { collection, doc, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { fetchDataDual, saveDataDual } from '../lib/syncEngine';
 import { 
   Student, 
   Attendance, 
@@ -109,9 +110,9 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
   useEffect(() => {
     const fetchStudents = async () => {
       try {
-        const snapshot = await getDocs(query(collection(db, 'students'), where('isActive', '==', true)));
-        const rawList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Student));
-        const list = filterStudents(rawList, true);
+        const rawList = await fetchDataDual('students');
+        const activeList = rawList.filter(s => s.isActive);
+        const list = filterStudents(activeList, true);
         list.sort((a, b) => a.name.localeCompare(b.name, 'fa'));
         setStudents(list);
 
@@ -147,8 +148,7 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
       const fullData: Record<string, any[]> = {};
 
       for (const colName of collectionsToExport) {
-        const snap = await getDocs(collection(db, colName));
-        fullData[colName] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        fullData[colName] = await fetchDataDual(colName);
       }
 
       const backupObj = {
@@ -284,44 +284,36 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
       if (!student) return;
 
       const [
-        periodicLogsSnap,
-        allPeriodicLogsSnap,
-        studyPeriodsSnap,
-        studyStatsSnap,
-        allStudyStatsSnap,
-        commentsSnap, 
-        oralExamsSnap, 
-        researchSnap,
-        enrollmentsSnap,
-        programsSnap
+        allPeriodicLogs,
+        studyPeriods,
+        allStudyStats,
+        allComments, 
+        allOralExams, 
+        allResearch,
+        allEnrollments,
+        allPrograms
       ] = await Promise.all([
-        getDocs(query(collection(db, 'periodic_study_logs'), where('studentId', '==', studentId))),
-        getDocs(collection(db, 'periodic_study_logs')),
-        getDocs(collection(db, 'study_periods')),
-        getDocs(query(collection(db, 'study_stats'), where('studentId', '==', studentId))),
-        getDocs(collection(db, 'study_stats')),
-        getDocs(query(collection(db, 'student_comments'), where('studentId', '==', studentId))),
-        getDocs(query(collection(db, 'oral_exams'), where('studentId', '==', studentId))),
-        getDocs(query(collection(db, 'research_records'), where('studentId', '==', studentId))),
-        getDocs(query(collection(db, 'enrollments'), where('studentId', '==', studentId))),
-        getDocs(collection(db, 'programs'))
+        fetchDataDual('periodic_study_logs'),
+        fetchDataDual('study_periods'),
+        fetchDataDual('study_stats'),
+        fetchDataDual('student_comments'),
+        fetchDataDual('oral_exams'),
+        fetchDataDual('research_records'),
+        fetchDataDual('enrollments'),
+        fetchDataDual('programs')
       ]);
 
-      const periodicLogs = periodicLogsSnap.docs.map(d => ({ id: d.id, ...d.data() } as PeriodicStudyLog));
-      const allPeriodicLogs = allPeriodicLogsSnap.docs.map(d => d.data() as PeriodicStudyLog);
-      const studyPeriods = studyPeriodsSnap.docs.map(d => ({ id: d.id, ...d.data() } as StudyPeriod));
-      const studyStats = studyStatsSnap.docs.map(d => d.data() as StudyStat);
+      const periodicLogs = allPeriodicLogs.filter((l: any) => l.studentId === studentId) as PeriodicStudyLog[];
+      const studyStats = allStudyStats.filter((s: any) => s.studentId === studentId) as StudyStat[];
 
       // Enrolled programs
-      const userEnrollments = enrollmentsSnap.docs.map(d => d.data() as Enrollment);
+      const userEnrollments = allEnrollments.filter((e: any) => e.studentId === studentId) as Enrollment[];
       const programIds = userEnrollments.map(e => e.programId);
-      const allPrograms = programsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Program));
-      const enrolledPrograms = allPrograms.filter(p => programIds.includes(p.id));
+      const enrolledPrograms = (allPrograms as Program[]).filter(p => programIds.includes(p.id));
 
       // Calculate overall average study time per period across all students (in hours)
-      const totalAllPeriodicHours = allPeriodicLogs.reduce((sum, l) => sum + (Number(l.hours) || 0), 0);
-      const totalAllStatsHours = allStudyStatsSnap.docs.map(d => d.data() as StudyStat)
-        .reduce((sum, s) => sum + (Number(s.studyHours) || 0) + (Number(s.discussionHours) || 0), 0);
+      const totalAllPeriodicHours = allPeriodicLogs.reduce((sum: number, l: any) => sum + (Number(l.hours) || 0), 0);
+      const totalAllStatsHours = allStudyStats.reduce((sum: number, s: any) => sum + (Number(s.studyHours) || 0) + (Number(s.discussionHours) || 0), 0);
       
       const totalAllHours = totalAllPeriodicHours + totalAllStatsHours;
       const totalStudentsCount = Math.max(1, studentList.length);
@@ -329,14 +321,13 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
       
       const overallStudyAvg = totalAllHours / totalStudentsCount / totalPeriodsCount;
 
-      const comments = commentsSnap.docs.map(d => ({ id: d.id, ...d.data() } as StudentComment));
+      const comments = allComments.filter((c: any) => c.studentId === studentId) as StudentComment[];
       comments.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
 
-      const oralExams = oralExamsSnap.docs.map(d => ({ id: d.id, ...d.data() } as OralExam));
+      const oralExams = allOralExams.filter((e: any) => e.studentId === studentId) as OralExam[];
       oralExams.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
 
-      const researchDoc = researchSnap.docs[0];
-      const research = researchDoc ? ({ id: researchDoc.id, ...researchDoc.data() } as ResearchRecord) : null;
+      const research = allResearch.find((r: any) => r.studentId === studentId) as ResearchRecord | null;
 
       setStudentDetails({
         info: student,

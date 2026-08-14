@@ -16,8 +16,7 @@ import {
   FileText,
   Bookmark
 } from 'lucide-react';
-import { collection, addDoc, getDocs, query, where, deleteDoc, doc, updateDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { fetchDataDual, saveDataDual, deleteDataDual } from '../lib/syncEngine';
 import { Student, ResearchRecord, ConversationArchive } from '../types';
 import { useMentor } from '../context/MentorContext';
 import { cn } from '../lib/utils';
@@ -52,9 +51,9 @@ export default function ResearchAndFeedback({ initialStudentId }: ResearchAndFee
   
   useEffect(() => {
     const fetchStudents = async () => {
-      const snapshot = await getDocs(query(collection(db, 'students'), where('isActive', '==', true)));
-      const raw = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Student));
-      setStudents(filterStudents(raw, true));
+      const raw = await fetchDataDual('students');
+      const activeOnly = raw.filter(s => s.isActive);
+      setStudents(filterStudents(activeOnly, true));
     };
     fetchStudents();
   }, [currentMentorId, shahpooriFilter]);
@@ -71,15 +70,14 @@ export default function ResearchAndFeedback({ initialStudentId }: ResearchAndFee
     setLoading(true);
     isFirstLoad.current = true;
     try {
-      const [rSnap, aSnap] = await Promise.all([
-        getDocs(query(collection(db, 'research_records'), where('studentId', '==', studentId))),
-        getDocs(query(collection(db, 'conversation_archives'), where('studentId', '==', studentId)))
-      ]);
+      const allR = await fetchDataDual('research_records');
+      const allA = await fetchDataDual('conversation_archives');
 
-      setArchives(aSnap.docs.map(d => ({ id: d.id, ...d.data() } as ConversationArchive)));
-      
-      const resData = rSnap.docs[0];
-      setResearch(resData ? ({ id: resData.id, ...resData.data() } as ResearchRecord) : null);
+      const sArchives = allA.filter((a: any) => a.studentId === studentId);
+      const sResearch = allR.find((r: any) => r.studentId === studentId);
+
+      setArchives(sArchives as ConversationArchive[]);
+      setResearch(sResearch ? (sResearch as ResearchRecord) : null);
     } catch (error) {
       console.error("Error fetching details:", error);
     } finally {
@@ -90,12 +88,10 @@ export default function ResearchAndFeedback({ initialStudentId }: ResearchAndFee
   const fetchAllResearchData = async () => {
     setIsExporting(true);
     try {
-      const snapshot = await getDocs(collection(db, 'research_records'));
-      const records = snapshot.docs.map(doc => {
-        const data = doc.data() as ResearchRecord;
+      const recordsRaw = await fetchDataDual('research_records');
+      const records = recordsRaw.map((data: ResearchRecord) => {
         const student = students.find(s => s.id === data.studentId);
         return {
-          id: doc.id,
           ...data,
           studentName: student?.name || 'نامشخص',
           studentGrade: student?.grade || '---'
@@ -153,11 +149,13 @@ export default function ResearchAndFeedback({ initialStudentId }: ResearchAndFee
     e.preventDefault();
     if (!selectedStudentId || !newArchive.trim()) return;
     try {
-      await addDoc(collection(db, 'conversation_archives'), {
+      const archiveToSave = {
+        id: 'archive_' + Date.now(),
         studentId: selectedStudentId,
         summary: newArchive,
         createdAt: new Date().toISOString()
-      });
+      };
+      await saveDataDual('conversation_archives', archiveToSave);
       setShowArchiveModal(false);
       setNewArchive('');
       fetchStudentDetails(selectedStudentId);
@@ -194,40 +192,22 @@ export default function ResearchAndFeedback({ initialStudentId }: ResearchAndFee
       const todoTitle = `پیگیری پژوهش: ${studentName} - ${topicTitle} (${research.stage || 'تعیین موضوع'})`;
 
       if (research.needsFollowUp) {
-        if (followUpId) {
-          try {
-            await updateDoc(doc(db, 'todos', followUpId), {
-              title: todoTitle,
-              isResearchFollowUp: true,
-              studentId: selectedStudentId,
-              researchRecordId: research.id || ''
-            });
-          } catch (e) {
-            const newTodo = await addDoc(collection(db, 'todos'), {
-              title: todoTitle,
-              completed: false,
-              isResearchFollowUp: true,
-              studentId: selectedStudentId,
-              researchRecordId: research.id || '',
-              createdAt: new Date().toISOString()
-            });
-            followUpId = newTodo.id;
-          }
-        } else {
-          const newTodo = await addDoc(collection(db, 'todos'), {
-            title: todoTitle,
-            completed: false,
-            isResearchFollowUp: true,
-            studentId: selectedStudentId,
-            researchRecordId: research.id || '',
-            createdAt: new Date().toISOString()
-          });
-          followUpId = newTodo.id;
+        if (!followUpId) {
+          followUpId = 'todo_' + Date.now();
         }
+        await saveDataDual('todos', {
+          id: followUpId,
+          title: todoTitle,
+          completed: false,
+          isResearchFollowUp: true,
+          studentId: selectedStudentId,
+          researchRecordId: research.id || 'research_' + Date.now(),
+          createdAt: new Date().toISOString()
+        });
       } else {
         if (followUpId) {
           try {
-            await deleteDoc(doc(db, 'todos', followUpId));
+            await deleteDataDual('todos', followUpId);
           } catch (e) {
             console.error("Error removing todo:", e);
           }
@@ -235,22 +215,19 @@ export default function ResearchAndFeedback({ initialStudentId }: ResearchAndFee
         }
       }
 
+      const recId = research.id || ('research_' + Date.now());
       const updatedData = {
         ...research,
+        id: recId,
         studentId: selectedStudentId,
         needsFollowUp: !!research.needsFollowUp,
         followUpTodoId: followUpId || null,
         updatedAt: new Date().toISOString()
       };
 
-      if (research.id) {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { id, ...data } = updatedData;
-        await updateDoc(doc(db, 'research_records', research.id), data);
-      } else {
-        const docRef = await addDoc(collection(db, 'research_records'), updatedData);
-        setResearch(prev => prev ? { ...prev, id: docRef.id } : null);
-      }
+      await saveDataDual('research_records', updatedData);
+      setResearch(updatedData as ResearchRecord);
+
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2500);
     } catch (error) {
@@ -279,7 +256,7 @@ export default function ResearchAndFeedback({ initialStudentId }: ResearchAndFee
 
   const deleteItem = async (col: string, id: string) => {
     if (!window.confirm("حذف شود؟")) return;
-    await deleteDoc(doc(db, col, id));
+    await deleteDataDual(col, id);
     fetchStudentDetails(selectedStudentId);
   };
 

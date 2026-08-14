@@ -38,8 +38,9 @@ import {
   Edit3,
   Trash2
 } from 'lucide-react';
-import { collection, addDoc, updateDoc, deleteDoc, getDocs, query, where, orderBy, limit, doc, getDoc, writeBatch } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, deleteDoc, doc, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { fetchDataDual, saveDataDual, deleteDataDual } from '../lib/syncEngine';
 import { Student, StudyPeriod, PeriodicStudyLog } from '../types';
 import { useMentor, getStudentMentorKey } from '../context/MentorContext';
 import { cn } from '../lib/utils';
@@ -191,16 +192,11 @@ export default function StudyStats({ initialStudentId }: StudyStatsProps = {}) {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [sSnap, pSnap, lSnap] = await Promise.all([
-        getDocs(query(collection(db, 'students'), where('isActive', '==', true))),
-        getDocs(query(collection(db, 'study_periods'), orderBy('createdAt', 'desc'))),
-        getDocs(collection(db, 'periodic_study_logs'))
-      ]);
-      
-      const sDataRaw = sSnap.docs.map(d => ({ id: d.id, ...d.data() } as Student));
-      const sData = filterStudents(sDataRaw, true);
-      const pDataRaw = pSnap.docs.map(d => ({ id: d.id, ...d.data() } as StudyPeriod));
-      const allL = lSnap.docs.map(d => ({ id: d.id, ...d.data() } as PeriodicStudyLog));
+      const sDataRaw = await fetchDataDual('students');
+      const pDataRaw = await fetchDataDual('study_periods');
+      const allL = await fetchDataDual('periodic_study_logs');
+
+      const sData = filterStudents(sDataRaw.filter(s => s.isActive), true);
 
       // Filter periods based on mentor
       const filteredPeriods = pDataRaw.filter(p => {

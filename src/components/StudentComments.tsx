@@ -21,8 +21,7 @@ import {
   RotateCcw,
   FileText
 } from 'lucide-react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { fetchDataDual, saveDataDual, deleteDataDual } from '../lib/syncEngine';
 import { Student, StudentComment, CommentPriority, OralExam, OralExamSubjectType } from '../types';
 import { useMentor } from '../context/MentorContext';
 import { cn } from '../lib/utils';
@@ -157,8 +156,7 @@ export default function StudentComments({ initialStudentId }: StudentCommentsPro
     setLoading(true);
     try {
       // Fetch students
-      const studentsSnap = await getDocs(collection(db, 'students'));
-      const studentsListRaw = studentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Student));
+      const studentsListRaw = await fetchDataDual('students');
       const studentsList = filterStudents(studentsListRaw, true);
       studentsList.sort((a, b) => a.name.localeCompare(b.name, 'fa'));
       setStudents(studentsList);
@@ -169,14 +167,12 @@ export default function StudentComments({ initialStudentId }: StudentCommentsPro
       }
 
       // Fetch comments
-      const commentsSnap = await getDocs(collection(db, 'student_comments'));
-      const commentsList = commentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as StudentComment));
+      const commentsList = await fetchDataDual('student_comments');
       commentsList.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
       setComments(commentsList);
 
       // Fetch oral exams
-      const oralExamsSnap = await getDocs(collection(db, 'oral_exams'));
-      const oralExamsList = oralExamsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as OralExam));
+      const oralExamsList = await fetchDataDual('oral_exams');
       oralExamsList.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
       setOralExams(oralExamsList);
     } catch (err) {
@@ -243,34 +239,20 @@ export default function StudentComments({ initialStudentId }: StudentCommentsPro
       const todoTitle = `[پیگیری صحبت - ${priorityLabel}] ${studentName}: ${formContent.trim().substring(0, 60)}${formContent.length > 60 ? '...' : ''} (${finalAuthorName})`;
 
       if (formNeedsFollowUp) {
-        if (followUpId) {
-          try {
-            await updateDoc(doc(db, 'todos', followUpId), {
-              title: todoTitle,
-              studentId: selectedStudent.id,
-            });
-          } catch {
-            const newTodo = await addDoc(collection(db, 'todos'), {
-              title: todoTitle,
-              completed: false,
-              studentId: selectedStudent.id,
-              createdAt: new Date().toISOString()
-            });
-            followUpId = newTodo.id;
-          }
-        } else {
-          const newTodo = await addDoc(collection(db, 'todos'), {
-            title: todoTitle,
-            completed: false,
-            studentId: selectedStudent.id,
-            createdAt: new Date().toISOString()
-          });
-          followUpId = newTodo.id;
+        if (!followUpId) {
+          followUpId = 'todo_' + Date.now();
         }
+        await saveDataDual('todos', {
+          id: followUpId,
+          title: todoTitle,
+          completed: false,
+          studentId: selectedStudent.id,
+          createdAt: new Date().toISOString()
+        });
       } else {
         if (followUpId) {
           try {
-            await deleteDoc(doc(db, 'todos', followUpId));
+            await deleteDataDual('todos', followUpId);
           } catch (e) {
             console.error("Error deleting old todo:", e);
           }
@@ -278,7 +260,9 @@ export default function StudentComments({ initialStudentId }: StudentCommentsPro
         }
       }
 
+      const commentId = editingComment?.id || ('comment_' + Date.now());
       const commentData = {
+        id: commentId,
         studentId: selectedStudent.id,
         authorName: finalAuthorName,
         priority: formPriority,
@@ -286,17 +270,11 @@ export default function StudentComments({ initialStudentId }: StudentCommentsPro
         date: formDate,
         needsFollowUp: formNeedsFollowUp,
         followUpTodoId: followUpId || null,
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
+        createdAt: editingComment?.createdAt || new Date().toISOString()
       };
 
-      if (editingComment) {
-        await updateDoc(doc(db, 'student_comments', editingComment.id), commentData);
-      } else {
-        await addDoc(collection(db, 'student_comments'), {
-          ...commentData,
-          createdAt: new Date().toISOString()
-        });
-      }
+      await saveDataDual('student_comments', commentData);
 
       setShowModal(false);
       fetchData();
@@ -314,12 +292,12 @@ export default function StudentComments({ initialStudentId }: StudentCommentsPro
       setLoading(true);
       if (deleteConfirmComment.followUpTodoId) {
         try {
-          await deleteDoc(doc(db, 'todos', deleteConfirmComment.followUpTodoId));
+          await deleteDataDual('todos', deleteConfirmComment.followUpTodoId);
         } catch (e) {
           console.error("Error deleting associated todo:", e);
         }
       }
-      await deleteDoc(doc(db, 'student_comments', deleteConfirmComment.id));
+      await deleteDataDual('student_comments', deleteConfirmComment.id);
       setDeleteConfirmComment(null);
       fetchData();
     } catch (err) {
@@ -371,7 +349,9 @@ export default function StudentComments({ initialStudentId }: StudentCommentsPro
 
     setLoading(true);
     try {
+      const examId = editingOralExam?.id || ('exam_' + Date.now());
       const examData = {
+        id: examId,
         studentId: selectedStudent.id,
         title: examTitle.trim(),
         subjectType: examSubjectType,
@@ -380,17 +360,11 @@ export default function StudentComments({ initialStudentId }: StudentCommentsPro
         date: examDate,
         isRetake: examIsRetake,
         notes: examNotes.trim(),
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
+        createdAt: editingOralExam?.createdAt || new Date().toISOString()
       };
 
-      if (editingOralExam) {
-        await updateDoc(doc(db, 'oral_exams', editingOralExam.id), examData);
-      } else {
-        await addDoc(collection(db, 'oral_exams'), {
-          ...examData,
-          createdAt: new Date().toISOString()
-        });
-      }
+      await saveDataDual('oral_exams', examData);
 
       setShowOralExamModal(false);
       fetchData();
@@ -406,7 +380,7 @@ export default function StudentComments({ initialStudentId }: StudentCommentsPro
     if (!deleteConfirmOralExam) return;
     try {
       setLoading(true);
-      await deleteDoc(doc(db, 'oral_exams', deleteConfirmOralExam.id));
+      await deleteDataDual('oral_exams', deleteConfirmOralExam.id);
       setDeleteConfirmOralExam(null);
       fetchData();
     } catch (err) {

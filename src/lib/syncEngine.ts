@@ -1,5 +1,5 @@
 import { supabase, uploadBase64ToSupabase } from './supabase';
-import { collection, getDocs, setDoc, doc } from 'firebase/firestore';
+import { collection, getDocs, setDoc, doc, deleteDoc } from 'firebase/firestore';
 import { db } from './firebase';
 
 export interface SyncResult {
@@ -13,6 +13,66 @@ export interface SyncResult {
 // Local Storage keys for offline backup on laptop
 const OFFLINE_KEY_PREFIX = 'imam_school_laptop_data_';
 
+export const DEFAULT_STUDENTS = [
+  {
+    id: 'student_1',
+    name: 'علی محمدی',
+    nationalId: '1234567890',
+    phoneNumber: '09123456789',
+    grade: 'پایه ۷',
+    isActive: true,
+    fatherOccupation: 'کارمند',
+    birthPlace: 'قم',
+    birthDate: '1380/05/12',
+    maritalStatus: 'مجرد',
+    childrenCount: 0,
+    livingStatus: 'خوابگاه',
+    classicEducation: 'دیپلم',
+    howzaEntryYear: '1400',
+    levelOneSchool: 'مدرسه امام کاظم (ع)',
+    tammomStatus: 'غیر معمم',
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'student_2',
+    name: 'حسین رضایی',
+    nationalId: '0987654321',
+    phoneNumber: '09198765432',
+    grade: 'پایه ۸',
+    isActive: true,
+    fatherOccupation: 'کشاورز',
+    birthPlace: 'مشهد',
+    birthDate: '1379/11/20',
+    maritalStatus: 'متاهل',
+    childrenCount: 1,
+    livingStatus: 'اجاره ای',
+    classicEducation: 'لیسانس',
+    howzaEntryYear: '1399',
+    levelOneSchool: 'مدرسه امام کاظم (ع)',
+    tammomStatus: 'معمم',
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'student_3',
+    name: 'محمدمهدی حسینی',
+    nationalId: '1122334455',
+    phoneNumber: '09351112233',
+    grade: 'پایه ۹',
+    isActive: true,
+    fatherOccupation: 'کاسب',
+    birthPlace: 'تهران',
+    birthDate: '1381/02/05',
+    maritalStatus: 'مجرد',
+    childrenCount: 0,
+    livingStatus: 'پدری',
+    classicEducation: 'دیپلم',
+    howzaEntryYear: '1401',
+    levelOneSchool: 'مدرسه امام کاظم (ع)',
+    tammomStatus: 'غیر معمم',
+    createdAt: new Date().toISOString()
+  }
+];
+
 export function saveLocalLaptopBackup(collectionName: string, data: any[]) {
   try {
     localStorage.setItem(`${OFFLINE_KEY_PREFIX}${collectionName}`, JSON.stringify(data));
@@ -24,15 +84,30 @@ export function saveLocalLaptopBackup(collectionName: string, data: any[]) {
 export function getLocalLaptopBackup(collectionName: string): any[] {
   try {
     const raw = localStorage.getItem(`${OFFLINE_KEY_PREFIX}${collectionName}`);
-    return raw ? JSON.parse(raw) : [];
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
   } catch (e) {
-    return [];
+    console.warn("LocalStorage read warning:", e);
   }
+
+  // Seed default students if students collection is empty
+  if (collectionName === 'students') {
+    saveLocalLaptopBackup('students', DEFAULT_STUDENTS);
+    return DEFAULT_STUDENTS;
+  }
+
+  return [];
 }
 
 /**
- * Dual fetch helper: First returns local backup instantly, then queries Supabase & Firestore
- * Supabase works directly in Iran without VPN!
+ * Dual fetch helper: Works 100% in Iran without VPN!
+ * 1. Returns local backup instantly.
+ * 2. Queries Supabase via REST API (Supabase is accessible without VPN in Iran!).
+ * 3. Falls back safely if Firestore is blocked or times out.
  */
 export async function fetchDataDual(collectionName: string): Promise<any[]> {
   const localBackup = getLocalLaptopBackup(collectionName);
@@ -41,33 +116,48 @@ export async function fetchDataDual(collectionName: string): Promise<any[]> {
     return localBackup;
   }
 
+  // 1. Primary remote fetch from Supabase (Works in Iran without VPN!)
   try {
-    // 1. Query Supabase (REST API works in Iran without VPN!)
     const { data: sbData, error: sbErr } = await supabase.from(collectionName).select('*');
-    if (!sbErr && sbData && sbData.length > 0) {
-      // Merge with local backup so offline items aren't lost
+    if (!sbErr && sbData) {
+      // Merge with local backup so offline-created items aren't lost
       const sbMap = new Map(sbData.map((item: any) => [item.id, item]));
+      const merged = [...sbData];
       for (const item of localBackup) {
         if (!sbMap.has(item.id)) {
-          sbData.push(item);
+          merged.push(item);
         }
       }
-      saveLocalLaptopBackup(collectionName, sbData);
-      return sbData;
+      if (merged.length > 0) {
+        saveLocalLaptopBackup(collectionName, merged);
+        return merged;
+      }
     }
+  } catch (err) {
+    console.warn(`Supabase fetch notice for ${collectionName}:`, err);
+  }
 
-    // 2. Fallback to Firestore with timeout
+  // 2. Short non-blocking Firestore fallback (300ms timeout max to prevent freezing in Iran without VPN)
+  try {
     const snap = await Promise.race([
       getDocs(collection(db, collectionName)),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Firestore timeout')), 1200))
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Firestore blocked/timeout')), 300))
     ]);
     const fsItems = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     if (fsItems && fsItems.length > 0) {
-      saveLocalLaptopBackup(collectionName, fsItems);
-      return fsItems;
+      // Merge
+      const fsMap = new Map(fsItems.map((item: any) => [item.id, item]));
+      const merged = [...fsItems];
+      for (const item of localBackup) {
+        if (!fsMap.has(item.id)) {
+          merged.push(item);
+        }
+      }
+      saveLocalLaptopBackup(collectionName, merged);
+      return merged;
     }
   } catch (err) {
-    console.warn(`Dual fetch fallback to local storage for ${collectionName}:`, err);
+    // Firestore is blocked in Iran without VPN - silently ignore and use local storage
   }
 
   return localBackup;
@@ -95,20 +185,49 @@ export async function saveDataDual(collectionName: string, item: any): Promise<v
       console.warn("Supabase upsert notice:", e);
     }
 
-    // 3. Push to Firestore in background
+    // 3. Non-blocking Firestore push in background
     try {
       await Promise.race([
         setDoc(doc(db, collectionName, item.id), item, { merge: true }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore timeout')), 1000))
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore timeout')), 300))
       ]);
     } catch (e) {
-      console.warn("Firestore setDoc notice:", e);
+      // Ignore Firestore network blocks in Iran
     }
   }
 }
 
 /**
- * Sync a specific collection between local laptop storage (Firestore/LocalStorage) and Supabase
+ * Dual delete helper: Deletes from local laptop storage immediately, then from Supabase & Firestore
+ */
+export async function deleteDataDual(collectionName: string, id: string): Promise<void> {
+  // 1. Remove from LocalStorage immediately
+  const localItems = getLocalLaptopBackup(collectionName);
+  const updated = localItems.filter((x: any) => x.id !== id);
+  saveLocalLaptopBackup(collectionName, updated);
+
+  if (navigator.onLine) {
+    // 2. Delete from Supabase (Works in Iran without VPN!)
+    try {
+      await supabase.from(collectionName).delete().eq('id', id);
+    } catch (e) {
+      console.warn("Supabase delete notice:", e);
+    }
+
+    // 3. Non-blocking Firestore delete in background
+    try {
+      await Promise.race([
+        deleteDoc(doc(db, collectionName, id)),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore timeout')), 300))
+      ]);
+    } catch (e) {
+      // Ignore
+    }
+  }
+}
+
+/**
+ * Sync a specific collection between local laptop storage and Supabase
  * Ensures NO local data is deleted if laptop has extra records; pushes them to Supabase!
  */
 export async function syncCollection(collectionName: string): Promise<{ pushed: number; pulled: number }> {
@@ -116,27 +235,16 @@ export async function syncCollection(collectionName: string): Promise<{ pushed: 
   let pulled = 0;
 
   try {
-    // 1. Fetch Local Data (from Firestore & LocalStorage backup)
-    let localItems: any[] = [];
-    try {
-      const snap = await getDocs(collection(db, collectionName));
-      localItems = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    } catch (err) {
-      console.warn(`Firestore read failed for ${collectionName}, falling back to laptop localStorage:`, err);
-      localItems = getLocalLaptopBackup(collectionName);
-    }
+    // 1. Get local items from LocalStorage
+    const localItems = getLocalLaptopBackup(collectionName);
 
-    if (localItems.length > 0) {
-      saveLocalLaptopBackup(collectionName, localItems);
-    }
-
-    // 2. Fetch Remote Data from Supabase
+    // 2. Fetch Remote Data from Supabase (Fast & works in Iran!)
     const { data: supabaseItems, error: sbError } = await supabase
       .from(collectionName)
       .select('*');
 
-    if (sbError) {
-      console.warn(`Supabase fetch notice for ${collectionName}:`, sbError.message);
+    if (sbError || !supabaseItems) {
+      console.warn(`Supabase fetch notice for ${collectionName}:`, sbError?.message);
       // If table doesn't exist yet in Supabase or permission issue, push local items to Supabase
       if (localItems.length > 0) {
         for (const item of localItems) {
@@ -153,13 +261,8 @@ export async function syncCollection(collectionName: string): Promise<{ pushed: 
     // 3. Pull from Supabase -> Laptop (if Supabase has items missing locally)
     for (const [sbId, sbItem] of sbMap.entries()) {
       if (!localMap.has(sbId)) {
-        try {
-          await setDoc(doc(db, collectionName, sbId), sbItem, { merge: true });
-          localItems.push(sbItem);
-          pulled++;
-        } catch (e) {
-          console.error(`Error saving pulled Supabase item to local Firestore:`, e);
-        }
+        localItems.push(sbItem);
+        pulled++;
       }
     }
 
@@ -173,12 +276,6 @@ export async function syncCollection(collectionName: string): Promise<{ pushed: 
           const publicUrl = await uploadBase64ToSupabase(localItem.photoUrl, localItem.id);
           if (publicUrl) {
             localItem.photoUrl = publicUrl;
-            // Update Firestore with new public URL
-            try {
-              await setDoc(doc(db, 'students', localId), { photoUrl: publicUrl }, { merge: true });
-            } catch (e) {
-              console.warn("Firestore update photoUrl error:", e);
-            }
           }
         } catch (e) {
           console.warn("Error uploading offline student photo during sync:", e);
@@ -193,8 +290,6 @@ export async function syncCollection(collectionName: string): Promise<{ pushed: 
           
           if (!upsertErr) {
             pushed++;
-          } else {
-            console.warn(`Could not push item ${localId} to Supabase ${collectionName}:`, upsertErr);
           }
         } catch (e) {
           console.error(`Error pushing local item to Supabase:`, e);
@@ -240,7 +335,7 @@ export async function performFullSync(): Promise<SyncResult> {
 
   return {
     success: true,
-    message: `همگام‌سازی کامل با دیتابیس Supabase انجام شد (${totalPushed} داده به Supabase ارسال شد، ${totalPulled} داده به لپ‌تاپ اضافه شد)`,
+    message: `همگام‌سازی کامل انجام شد (${totalPushed} داده ارسال شد، ${totalPulled} داده به لپ‌تاپ اضافه شد)`,
     pushedCount: totalPushed,
     pulledCount: totalPulled,
     timestamp: nowStr

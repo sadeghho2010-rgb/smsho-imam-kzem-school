@@ -22,7 +22,7 @@ import * as XLSX from 'xlsx';
 import { collection, addDoc, getDocs, updateDoc, doc, deleteDoc, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { uploadImageToSupabase } from '../lib/supabase';
-import { syncCollection, saveLocalLaptopBackup, getLocalLaptopBackup, fetchDataDual, saveDataDual } from '../lib/syncEngine';
+import { syncCollection, saveLocalLaptopBackup, getLocalLaptopBackup, fetchDataDual, saveDataDual, deleteDataDual } from '../lib/syncEngine';
 import { Student } from '../types';
 import { useMentor } from '../context/MentorContext';
 import { cn } from '../lib/utils';
@@ -244,20 +244,12 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
 
   const toggleActive = async (id: string, currentStatus: boolean) => {
     try {
-      if (navigator.onLine) {
-        try {
-          await Promise.race([
-            updateDoc(doc(db, 'students', id), { isActive: !currentStatus }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 1000))
-          ]);
-        } catch (e) {
-          console.warn("Toggle active offline/timeout:", e);
-        }
+      const student = students.find(s => s.id === id);
+      if (student) {
+        const updated = { ...student, isActive: !currentStatus };
+        await saveDataDual('students', updated);
+        fetchStudents();
       }
-      const currentBackup = getLocalLaptopBackup('students');
-      const updatedBackup = currentBackup.map((s: Student) => s.id === id ? { ...s, isActive: !currentStatus } : s);
-      saveLocalLaptopBackup('students', updatedBackup);
-      fetchStudents();
     } catch (error) {
       console.error("Error updating student:", error);
     }
@@ -270,20 +262,7 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
   const confirmDeleteStudent = async () => {
     if (!studentToDelete) return;
     try {
-      if (navigator.onLine) {
-        try {
-          await Promise.race([
-            deleteDoc(doc(db, 'students', studentToDelete.id)),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 1000))
-          ]);
-        } catch (e) {
-          console.warn("Delete student offline/timeout:", e);
-        }
-      }
-      const currentBackup = getLocalLaptopBackup('students');
-      const updatedBackup = currentBackup.filter((s: Student) => s.id !== studentToDelete.id);
-      saveLocalLaptopBackup('students', updatedBackup);
-
+      await deleteDataDual('students', studentToDelete.id);
       setStudentToDelete(null);
       fetchStudents();
     } catch (error: any) {
@@ -295,14 +274,8 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
   const confirmDeleteAllStudents = async () => {
     setDeletingAll(true);
     try {
-      if (navigator.onLine) {
-        try {
-          const snapshot = await getDocs(collection(db, 'students'));
-          const deletePromises = snapshot.docs.map(docSnap => deleteDoc(doc(db, 'students', docSnap.id)));
-          await Promise.all(deletePromises);
-        } catch (e) {
-          console.warn("Delete all offline/timeout:", e);
-        }
+      for (const s of students) {
+        await deleteDataDual('students', s.id);
       }
       saveLocalLaptopBackup('students', []);
       setShowDeleteAllModal(false);

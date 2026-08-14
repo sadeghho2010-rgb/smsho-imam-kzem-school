@@ -10,8 +10,7 @@ import {
   Bookmark,
   BarChart2
 } from 'lucide-react';
-import { collection, addDoc, getDocs, deleteDoc, doc, updateDoc, query, orderBy } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { fetchDataDual, saveDataDual, deleteDataDual, getLocalLaptopBackup } from '../lib/syncEngine';
 import { Todo } from '../types';
 import { useMentor } from '../context/MentorContext';
 import { cn } from '../lib/utils';
@@ -25,29 +24,36 @@ export default function TodoList() {
   const [filter, setFilter] = useState<'all' | 'general' | 'research' | 'study'>('all');
 
   const fetchTodos = async () => {
-    setLoading(true);
+    // 1. Instant load from local backup
+    const local = getLocalLaptopBackup('todos');
+    if (local && local.length > 0) {
+      setTodos(filterMentorTodos(local));
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
     try {
-      const q = query(collection(db, 'todos'), orderBy('completed', 'asc'));
-      const snapshot = await getDocs(q);
-      const rawTodos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Todo));
-
-      const filteredTodos = rawTodos.filter(t => {
-        if (currentMentorId === 'shahpoori') {
-          if (shahpooriFilter === 'all') return true;
-          return t.mentorId === shahpooriFilter;
-        }
-        if (t.mentorId) {
-          return t.mentorId === currentMentorId;
-        }
-        return true;
-      });
-
-      setTodos(filteredTodos);
+      const rawTodos = await fetchDataDual('todos');
+      setTodos(filterMentorTodos(rawTodos));
     } catch (error) {
       console.error("Error fetching todos:", error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const filterMentorTodos = (rawTodos: Todo[]) => {
+    return rawTodos.filter(t => {
+      if (currentMentorId === 'shahpoori') {
+        if (shahpooriFilter === 'all') return true;
+        return t.mentorId === shahpooriFilter;
+      }
+      if (t.mentorId) {
+        return t.mentorId === currentMentorId;
+      }
+      return true;
+    });
   };
 
   useEffect(() => {
@@ -58,12 +64,14 @@ export default function TodoList() {
     e.preventDefault();
     if (!newTodo.trim()) return;
     try {
-      await addDoc(collection(db, 'todos'), {
+      const todoToSave: Todo = {
+        id: 'todo_' + Date.now(),
         title: newTodo,
         completed: false,
         mentorId: currentMentorId,
         createdAt: new Date().toISOString()
-      });
+      };
+      await saveDataDual('todos', todoToSave);
       setNewTodo('');
       fetchTodos();
     } catch (error) {
@@ -73,8 +81,11 @@ export default function TodoList() {
 
   const toggleTodo = async (id: string, completed: boolean) => {
     try {
-      await updateDoc(doc(db, 'todos', id), { completed: !completed });
-      fetchTodos();
+      const todo = todos.find(t => t.id === id);
+      if (todo) {
+        await saveDataDual('todos', { ...todo, completed: !completed });
+        fetchTodos();
+      }
     } catch (error) {
       console.error("Error updating todo:", error);
     }
@@ -82,7 +93,7 @@ export default function TodoList() {
 
   const deleteTodo = async (id: string) => {
     try {
-      await deleteDoc(doc(db, 'todos', id));
+      await deleteDataDual('todos', id);
       fetchTodos();
     } catch (error) {
       console.error("Error deleting todo:", error);
