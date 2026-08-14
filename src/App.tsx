@@ -14,6 +14,7 @@ import Summary from './components/Summary';
 import TodoList from './components/TodoList';
 import StudentComments from './components/StudentComments';
 import MentorSelectorModal from './components/MentorSelectorModal';
+import SupabaseSyncIndicator from './components/SupabaseSyncIndicator';
 import { MentorProvider, useMentor } from './context/MentorContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { Menu, X, ChevronDown, UserCheck, ShieldCheck, Filter, Users, Layers } from 'lucide-react';
@@ -131,8 +132,10 @@ function AppContent() {
               </div>
             </div>
 
-            {/* Current Mentor Selector Badge */}
+            {/* Supabase & Laptop Storage Sync Indicator & Mentor Badge */}
             <div className="flex items-center gap-2">
+              <SupabaseSyncIndicator />
+
               <button
                 type="button"
                 onClick={() => setIsMentorModalOpen(true)}

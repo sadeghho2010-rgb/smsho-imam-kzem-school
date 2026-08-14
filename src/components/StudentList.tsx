@@ -15,11 +15,14 @@ import {
   ArrowUp,
   ArrowDown,
   Filter,
-  RotateCcw
+  RotateCcw,
+  Loader2
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { collection, addDoc, getDocs, updateDoc, doc, deleteDoc, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { uploadImageToSupabase } from '../lib/supabase';
+import { syncCollection } from '../lib/syncEngine';
 import { Student } from '../types';
 import { useMentor } from '../context/MentorContext';
 import { cn } from '../lib/utils';
@@ -179,6 +182,7 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
         });
         alert('طلبه جدید با موفقیت ثبت شد');
       }
+      syncCollection('students');
       resetForm();
       setShowAddModal(false);
       fetchStudents();
@@ -188,44 +192,23 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
     }
   };
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 300;
-        const MAX_HEIGHT = 300;
-        let width = img.width;
-        let height = img.height;
-
-        if (width > height) {
-          if (width > MAX_WIDTH) {
-            height *= MAX_WIDTH / width;
-            width = MAX_WIDTH;
-          }
-        } else {
-          if (height > MAX_HEIGHT) {
-            width *= MAX_HEIGHT / height;
-            height = MAX_HEIGHT;
-          }
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-          setNewStudent(prev => ({ ...prev, photoUrl: dataUrl }));
-        }
-      };
-      img.src = event.target?.result as string;
-    };
-    reader.readAsDataURL(file);
+    setUploadingPhoto(true);
+    try {
+      const result = await uploadImageToSupabase(file, editingStudent?.id);
+      const photoToSave = result.publicUrl || result.localDataUrl;
+      setNewStudent(prev => ({ ...prev, photoUrl: photoToSave }));
+    } catch (err) {
+      console.error("Photo upload error:", err);
+      alert("خطا در فشرده‌سازی و بارگذاری تصویر");
+    } finally {
+      setUploadingPhoto(false);
+    }
   };
 
   const resetForm = () => {
@@ -964,10 +947,10 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
                     </div>
                     <div className="flex-1 space-y-2 text-center md:text-right">
                       <div className="flex flex-wrap items-center justify-center md:justify-start gap-2">
-                        <label className="cursor-pointer px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm">
-                          <Upload size={14} />
-                          <span>انتخاب و آپلود عکس طلبه</span>
-                          <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
+                        <label className={cn("cursor-pointer px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm", uploadingPhoto && "opacity-75 pointer-events-none")}>
+                          {uploadingPhoto ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                          <span>{uploadingPhoto ? 'در حال فشرده‌سازی و آپلود...' : 'انتخاب و آپلود عکس طلبه'}</span>
+                          <input type="file" accept="image/*" onChange={handlePhotoUpload} disabled={uploadingPhoto} className="hidden" />
                         </label>
                         {newStudent.photoUrl && (
                           <button
