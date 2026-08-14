@@ -21,11 +21,11 @@ import {
   RotateCcw,
   FileText
 } from 'lucide-react';
-import { fetchDataDual, saveDataDual, deleteDataDual } from '../lib/syncEngine';
+import { localDb } from '../lib/localDb';
 import { Student, StudentComment, CommentPriority, OralExam, OralExamSubjectType } from '../types';
 import { useMentor } from '../context/MentorContext';
 import { cn } from '../lib/utils';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 
 const TEACHER_PRESETS = [
   'استاد فقه',
@@ -141,22 +141,11 @@ export default function StudentComments({ initialStudentId }: StudentCommentsPro
   // Oral Exam Delete Confirm Modal
   const [deleteConfirmOralExam, setDeleteConfirmOralExam] = useState<OralExam | null>(null);
 
-  useEffect(() => {
-    fetchData();
-  }, [currentMentorId, shahpooriFilter]);
-
-  useEffect(() => {
-    if (initialStudentId && students.length > 0) {
-      const found = students.find(s => s.id === initialStudentId);
-      if (found) setSelectedStudent(found);
-    }
-  }, [initialStudentId, students]);
-
   const fetchData = async () => {
     setLoading(true);
     try {
       // Fetch students
-      const studentsListRaw = await fetchDataDual('students');
+      const studentsListRaw = await localDb.getDocs<Student>('students');
       const studentsList = filterStudents(studentsListRaw, true);
       studentsList.sort((a, b) => a.name.localeCompare(b.name, 'fa'));
       setStudents(studentsList);
@@ -167,12 +156,12 @@ export default function StudentComments({ initialStudentId }: StudentCommentsPro
       }
 
       // Fetch comments
-      const commentsList = await fetchDataDual('student_comments');
+      const commentsList = await localDb.getDocs<StudentComment>('student_comments');
       commentsList.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
       setComments(commentsList);
 
       // Fetch oral exams
-      const oralExamsList = await fetchDataDual('oral_exams');
+      const oralExamsList = await localDb.getDocs<OralExam>('oral_exams');
       oralExamsList.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
       setOralExams(oralExamsList);
     } catch (err) {
@@ -181,6 +170,21 @@ export default function StudentComments({ initialStudentId }: StudentCommentsPro
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchData();
+    const unsub = localDb.subscribe(() => {
+      fetchData();
+    });
+    return () => unsub();
+  }, [currentMentorId, shahpooriFilter]);
+
+  useEffect(() => {
+    if (initialStudentId && students.length > 0) {
+      const found = students.find(s => s.id === initialStudentId);
+      if (found) setSelectedStudent(found);
+    }
+  }, [initialStudentId, students]);
 
   const activeStudents = students.filter(s => s.isActive !== false);
 
@@ -239,20 +243,34 @@ export default function StudentComments({ initialStudentId }: StudentCommentsPro
       const todoTitle = `[پیگیری صحبت - ${priorityLabel}] ${studentName}: ${formContent.trim().substring(0, 60)}${formContent.length > 60 ? '...' : ''} (${finalAuthorName})`;
 
       if (formNeedsFollowUp) {
-        if (!followUpId) {
-          followUpId = 'todo_' + Date.now();
+        if (followUpId) {
+          try {
+            await localDb.updateDoc('todos', followUpId, {
+              title: todoTitle,
+              studentId: selectedStudent.id,
+            });
+          } catch {
+            const newTodoId = await localDb.addDoc('todos', {
+              title: todoTitle,
+              completed: false,
+              studentId: selectedStudent.id,
+              createdAt: new Date().toISOString()
+            });
+            followUpId = newTodoId;
+          }
+        } else {
+          const newTodoId = await localDb.addDoc('todos', {
+            title: todoTitle,
+            completed: false,
+            studentId: selectedStudent.id,
+            createdAt: new Date().toISOString()
+          });
+          followUpId = newTodoId;
         }
-        await saveDataDual('todos', {
-          id: followUpId,
-          title: todoTitle,
-          completed: false,
-          studentId: selectedStudent.id,
-          createdAt: new Date().toISOString()
-        });
       } else {
         if (followUpId) {
           try {
-            await deleteDataDual('todos', followUpId);
+            await localDb.deleteDoc('todos', followUpId);
           } catch (e) {
             console.error("Error deleting old todo:", e);
           }
@@ -260,9 +278,7 @@ export default function StudentComments({ initialStudentId }: StudentCommentsPro
         }
       }
 
-      const commentId = editingComment?.id || ('comment_' + Date.now());
       const commentData = {
-        id: commentId,
         studentId: selectedStudent.id,
         authorName: finalAuthorName,
         priority: formPriority,
@@ -270,11 +286,17 @@ export default function StudentComments({ initialStudentId }: StudentCommentsPro
         date: formDate,
         needsFollowUp: formNeedsFollowUp,
         followUpTodoId: followUpId || null,
-        updatedAt: new Date().toISOString(),
-        createdAt: editingComment?.createdAt || new Date().toISOString()
+        updatedAt: new Date().toISOString()
       };
 
-      await saveDataDual('student_comments', commentData);
+      if (editingComment) {
+        await localDb.updateDoc('student_comments', editingComment.id, commentData);
+      } else {
+        await localDb.addDoc('student_comments', {
+          ...commentData,
+          createdAt: new Date().toISOString()
+        });
+      }
 
       setShowModal(false);
       fetchData();
@@ -292,12 +314,12 @@ export default function StudentComments({ initialStudentId }: StudentCommentsPro
       setLoading(true);
       if (deleteConfirmComment.followUpTodoId) {
         try {
-          await deleteDataDual('todos', deleteConfirmComment.followUpTodoId);
+          await localDb.deleteDoc('todos', deleteConfirmComment.followUpTodoId);
         } catch (e) {
           console.error("Error deleting associated todo:", e);
         }
       }
-      await deleteDataDual('student_comments', deleteConfirmComment.id);
+      await localDb.deleteDoc('student_comments', deleteConfirmComment.id);
       setDeleteConfirmComment(null);
       fetchData();
     } catch (err) {
@@ -349,9 +371,7 @@ export default function StudentComments({ initialStudentId }: StudentCommentsPro
 
     setLoading(true);
     try {
-      const examId = editingOralExam?.id || ('exam_' + Date.now());
       const examData = {
-        id: examId,
         studentId: selectedStudent.id,
         title: examTitle.trim(),
         subjectType: examSubjectType,
@@ -360,11 +380,17 @@ export default function StudentComments({ initialStudentId }: StudentCommentsPro
         date: examDate,
         isRetake: examIsRetake,
         notes: examNotes.trim(),
-        updatedAt: new Date().toISOString(),
-        createdAt: editingOralExam?.createdAt || new Date().toISOString()
+        updatedAt: new Date().toISOString()
       };
 
-      await saveDataDual('oral_exams', examData);
+      if (editingOralExam) {
+        await localDb.updateDoc('oral_exams', editingOralExam.id, examData);
+      } else {
+        await localDb.addDoc('oral_exams', {
+          ...examData,
+          createdAt: new Date().toISOString()
+        });
+      }
 
       setShowOralExamModal(false);
       fetchData();
@@ -380,7 +406,7 @@ export default function StudentComments({ initialStudentId }: StudentCommentsPro
     if (!deleteConfirmOralExam) return;
     try {
       setLoading(true);
-      await deleteDataDual('oral_exams', deleteConfirmOralExam.id);
+      await localDb.deleteDoc('oral_exams', deleteConfirmOralExam.id);
       setDeleteConfirmOralExam(null);
       fetchData();
     } catch (err) {

@@ -8,8 +8,8 @@ import {
   Users,
   Search
 } from 'lucide-react';
-import { fetchDataDual, saveDataDual, deleteDataDual } from '../lib/syncEngine';
 import { Program, Student, Enrollment } from '../types';
+import { localDb } from '../lib/localDb';
 import { useMentor, getStudentMentorKey } from '../context/MentorContext';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -37,9 +37,9 @@ export default function Programs() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const rawPrograms = await fetchDataDual('programs');
-      const rawStudents = await fetchDataDual('students');
-      const rawEnrollments = await fetchDataDual('enrollments');
+      const rawPrograms = await localDb.getDocs<Program>('programs');
+      const rawStudents = await localDb.getDocs<Student>('students');
+      const rawEnrollments = await localDb.getDocs<Enrollment>('enrollments');
 
       setStudents(rawStudents);
       setEnrollments(rawEnrollments);
@@ -49,6 +49,7 @@ export default function Programs() {
         if (currentMentorId === 'shahpoori') {
           if (shahpooriFilter === 'all') return true;
           if (p.mentorId) return p.mentorId === shahpooriFilter;
+          // Legacy check for Shahpoori
           const enrolledIds = rawEnrollments.filter(e => e.programId === p.id).map(e => e.studentId);
           const targetStudents = rawStudents.filter(s => s.isActive && getStudentMentorKey(s.grade) === shahpooriFilter);
           return enrolledIds.some(id => targetStudents.some(ts => ts.id === id));
@@ -58,6 +59,7 @@ export default function Programs() {
           return p.mentorId === currentMentorId;
         }
 
+        // Legacy program without mentorId:
         const enrolledIds = rawEnrollments.filter(e => e.programId === p.id).map(e => e.studentId);
         const myStudents = filterStudents(rawStudents, true);
         if (enrolledIds.length > 0) {
@@ -76,6 +78,10 @@ export default function Programs() {
 
   useEffect(() => {
     fetchData();
+    const unsub = localDb.subscribe(() => {
+      fetchData();
+    });
+    return () => unsub();
   }, [currentMentorId, shahpooriFilter]);
 
   const handleEnrollClick = (programId: string) => {
@@ -97,18 +103,16 @@ export default function Programs() {
       // Add new ones
       const toAdd = selectedEnrollments.filter(id => !currentStudentIds.includes(id));
       for (const studentId of toAdd) {
-        const newEnrollment: Enrollment = {
-          id: 'enrollment_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+        await localDb.addDoc('enrollments', {
           studentId,
           programId: selectedProgramId
-        };
-        await saveDataDual('enrollments', newEnrollment);
+        });
       }
 
       // Remove deselected
       const toRemove = currentEnrollments.filter(e => !selectedEnrollments.includes(e.studentId));
       for (const enrollment of toRemove) {
-        await deleteDataDual('enrollments', enrollment.id);
+        await localDb.deleteDoc('enrollments', enrollment.id);
       }
 
       await fetchData();
@@ -125,12 +129,10 @@ export default function Programs() {
   const handleAddProgram = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const programToSave = {
-        id: 'program_' + Date.now(),
+      await localDb.addDoc('programs', {
         ...newProgram,
         mentorId: currentMentorId
-      };
-      await saveDataDual('programs', programToSave);
+      });
       setShowAddModal(false);
       setNewProgram({ title: '', type: 'اصلی', day: '', time: '', teacher: '' });
       fetchData();
@@ -142,7 +144,7 @@ export default function Programs() {
   const deleteProgram = async (id: string) => {
     if (!window.confirm("آیا از حذف این برنامه اطمینان دارید؟")) return;
     try {
-      await deleteDataDual('programs', id);
+      await localDb.deleteDoc('programs', id);
       fetchData();
     } catch (error) {
       console.error("Error deleting program:", error);

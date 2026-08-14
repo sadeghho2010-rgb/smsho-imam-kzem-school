@@ -34,9 +34,7 @@ import {
   FileText,
   Printer
 } from 'lucide-react';
-import { collection, doc, writeBatch } from 'firebase/firestore';
-import { db } from '../lib/firebase';
-import { fetchDataDual, saveDataDual } from '../lib/syncEngine';
+import { localDb } from '../lib/localDb';
 import { 
   Student, 
   Attendance, 
@@ -110,7 +108,7 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
   useEffect(() => {
     const fetchStudents = async () => {
       try {
-        const rawList = await fetchDataDual('students');
+        const rawList = await localDb.getDocs<Student>('students');
         const activeList = rawList.filter(s => s.isActive);
         const list = filterStudents(activeList, true);
         list.sort((a, b) => a.name.localeCompare(b.name, 'fa'));
@@ -125,40 +123,18 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
       }
     };
     fetchStudents();
+    const unsub = localDb.subscribe(() => {
+      fetchStudents();
+    });
+    return () => unsub();
   }, [currentMentorId, shahpooriFilter]);
 
   // Full App Export Function
   const handleExportFullData = async () => {
     try {
       setLoading(true);
-      const collectionsToExport = [
-        'students',
-        'study_periods',
-        'periodic_study_logs',
-        'study_stats',
-        'student_comments',
-        'oral_exams',
-        'research_records',
-        'conversation_archives',
-        'enrollments',
-        'programs',
-        'todos'
-      ];
-
-      const fullData: Record<string, any[]> = {};
-
-      for (const colName of collectionsToExport) {
-        fullData[colName] = await fetchDataDual(colName);
-      }
-
-      const backupObj = {
-        exportedAt: new Date().toISOString(),
-        appName: "سامانه مدیریت طلاب",
-        version: "2.0",
-        data: fullData
-      };
-
-      const blob = new Blob([JSON.stringify(backupObj, null, 2)], { type: 'application/json' });
+      const backupPkg = await localDb.exportFullBackup();
+      const blob = new Blob([JSON.stringify(backupPkg, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -193,23 +169,7 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
           return;
         }
 
-        const dataMap = backupObj.data;
-        const batch = writeBatch(db);
-
-        for (const [colName, docsArr] of Object.entries(dataMap)) {
-          if (Array.isArray(docsArr)) {
-            for (const item of docsArr) {
-              const { id, ...rest } = item as any;
-              if (id) {
-                batch.set(doc(db, colName, id), rest, { merge: true });
-              } else {
-                batch.set(doc(collection(db, colName)), rest);
-              }
-            }
-          }
-        }
-
-        await batch.commit();
+        await localDb.importFullBackup(backupObj);
         alert("اطلاعات کل نرم‌افزار با موفقیت بازیابی و به‌روزرسانی شد.");
         window.location.reload();
       } catch (err) {
@@ -287,33 +247,34 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
         allPeriodicLogs,
         studyPeriods,
         allStudyStats,
-        allComments, 
-        allOralExams, 
+        allComments,
+        allOralExams,
         allResearch,
         allEnrollments,
         allPrograms
       ] = await Promise.all([
-        fetchDataDual('periodic_study_logs'),
-        fetchDataDual('study_periods'),
-        fetchDataDual('study_stats'),
-        fetchDataDual('student_comments'),
-        fetchDataDual('oral_exams'),
-        fetchDataDual('research_records'),
-        fetchDataDual('enrollments'),
-        fetchDataDual('programs')
+        localDb.getDocs<PeriodicStudyLog>('periodic_study_logs'),
+        localDb.getDocs<StudyPeriod>('study_periods'),
+        localDb.getDocs<StudyStat>('study_stats'),
+        localDb.getDocs<StudentComment>('student_comments'),
+        localDb.getDocs<OralExam>('oral_exams'),
+        localDb.getDocs<ResearchRecord>('research_records'),
+        localDb.getDocs<Enrollment>('enrollments'),
+        localDb.getDocs<Program>('programs')
       ]);
 
-      const periodicLogs = allPeriodicLogs.filter((l: any) => l.studentId === studentId) as PeriodicStudyLog[];
-      const studyStats = allStudyStats.filter((s: any) => s.studentId === studentId) as StudyStat[];
+      const periodicLogs = allPeriodicLogs.filter(l => l.studentId === studentId);
+      const studyStats = allStudyStats.filter(s => s.studentId === studentId);
 
       // Enrolled programs
-      const userEnrollments = allEnrollments.filter((e: any) => e.studentId === studentId) as Enrollment[];
+      const userEnrollments = allEnrollments.filter(e => e.studentId === studentId);
       const programIds = userEnrollments.map(e => e.programId);
-      const enrolledPrograms = (allPrograms as Program[]).filter(p => programIds.includes(p.id));
+      const enrolledPrograms = allPrograms.filter(p => programIds.includes(p.id));
 
       // Calculate overall average study time per period across all students (in hours)
-      const totalAllPeriodicHours = allPeriodicLogs.reduce((sum: number, l: any) => sum + (Number(l.hours) || 0), 0);
-      const totalAllStatsHours = allStudyStats.reduce((sum: number, s: any) => sum + (Number(s.studyHours) || 0) + (Number(s.discussionHours) || 0), 0);
+      const totalAllPeriodicHours = allPeriodicLogs.reduce((sum, l) => sum + (Number(l.hours) || 0), 0);
+      const totalAllStatsHours = allStudyStats
+        .reduce((sum, s) => sum + (Number(s.studyHours) || 0) + (Number(s.discussionHours) || 0), 0);
       
       const totalAllHours = totalAllPeriodicHours + totalAllStatsHours;
       const totalStudentsCount = Math.max(1, studentList.length);
@@ -321,13 +282,14 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
       
       const overallStudyAvg = totalAllHours / totalStudentsCount / totalPeriodsCount;
 
-      const comments = allComments.filter((c: any) => c.studentId === studentId) as StudentComment[];
+      const comments = allComments.filter(c => c.studentId === studentId);
       comments.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
 
-      const oralExams = allOralExams.filter((e: any) => e.studentId === studentId) as OralExam[];
+      const oralExams = allOralExams.filter(e => e.studentId === studentId);
       oralExams.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
 
-      const research = allResearch.find((r: any) => r.studentId === studentId) as ResearchRecord | null;
+      const researchList = allResearch.filter(r => r.studentId === studentId);
+      const research = researchList.length > 0 ? researchList[0] : null;
 
       setStudentDetails({
         info: student,
@@ -630,31 +592,6 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
               <span>{isExportingPDF ? 'در حال تولید PDF...' : 'گزارش PDF طلبه'}</span>
             </button>
           )}
-
-          <button
-            onClick={handleExportFullData}
-            className="flex items-center gap-1.5 px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all border border-slate-200 shrink-0"
-            title="دانلود تمام دیتای نرم‌افزار (JSON)"
-          >
-            <Download size={15} />
-            <span className="hidden sm:inline">دانلود دیتای کل</span>
-          </button>
-
-          <button
-            onClick={() => fullImportInputRef.current?.click()}
-            className="flex items-center gap-1.5 px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all border border-slate-200 shrink-0"
-            title="وارد کردن تمام دیتای نرم‌افزار (JSON)"
-          >
-            <Upload size={15} />
-            <span className="hidden sm:inline">وارد کردن دیتای کل</span>
-          </button>
-          <input 
-            type="file" 
-            ref={fullImportInputRef} 
-            onChange={handleImportFullData} 
-            accept=".json" 
-            className="hidden" 
-          />
 
           <button
             onClick={() => {

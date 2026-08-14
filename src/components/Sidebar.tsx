@@ -8,7 +8,8 @@ import {
   BarChart2, 
   UserCheck,
   BrainCircuit,
-  GraduationCap
+  GraduationCap,
+  HardDrive
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -29,6 +30,7 @@ const menuItems = [
   { id: 'attendance', label: 'حضور و غیاب', icon: CheckSquare },
   { id: 'comments', label: 'نظرات و صحبت‌ها', icon: MessageSquare },
   { id: 'summary', label: 'جمع‌بندی و هوش مصنوعی', icon: BrainCircuit },
+  { id: 'backup', label: 'پشتیبان‌گیری و بازیابی', icon: HardDrive },
 ];
 
 export default function Sidebar({ activeTab, setActiveTab, isOpen }: SidebarProps) {

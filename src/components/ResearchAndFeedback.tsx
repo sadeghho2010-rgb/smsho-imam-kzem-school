@@ -16,7 +16,7 @@ import {
   FileText,
   Bookmark
 } from 'lucide-react';
-import { fetchDataDual, saveDataDual, deleteDataDual } from '../lib/syncEngine';
+import { localDb } from '../lib/localDb';
 import { Student, ResearchRecord, ConversationArchive } from '../types';
 import { useMentor } from '../context/MentorContext';
 import { cn } from '../lib/utils';
@@ -51,11 +51,15 @@ export default function ResearchAndFeedback({ initialStudentId }: ResearchAndFee
   
   useEffect(() => {
     const fetchStudents = async () => {
-      const raw = await fetchDataDual('students');
-      const activeOnly = raw.filter(s => s.isActive);
-      setStudents(filterStudents(activeOnly, true));
+      const all = await localDb.getDocs<Student>('students');
+      const active = all.filter(s => s.isActive);
+      setStudents(filterStudents(active, true));
     };
     fetchStudents();
+    const unsub = localDb.subscribe(() => {
+      fetchStudents();
+    });
+    return () => unsub();
   }, [currentMentorId, shahpooriFilter]);
 
   const [archives, setArchives] = useState<ConversationArchive[]>([]);
@@ -70,14 +74,16 @@ export default function ResearchAndFeedback({ initialStudentId }: ResearchAndFee
     setLoading(true);
     isFirstLoad.current = true;
     try {
-      const allR = await fetchDataDual('research_records');
-      const allA = await fetchDataDual('conversation_archives');
+      const [allResearch, allArchives] = await Promise.all([
+        localDb.getDocs<ResearchRecord>('research_records'),
+        localDb.getDocs<ConversationArchive>('conversation_archives')
+      ]);
 
-      const sArchives = allA.filter((a: any) => a.studentId === studentId);
-      const sResearch = allR.find((r: any) => r.studentId === studentId);
-
-      setArchives(sArchives as ConversationArchive[]);
-      setResearch(sResearch ? (sResearch as ResearchRecord) : null);
+      const studentArchives = allArchives.filter(a => a.studentId === studentId);
+      setArchives(studentArchives);
+      
+      const studentResearch = allResearch.find(r => r.studentId === studentId);
+      setResearch(studentResearch || null);
     } catch (error) {
       console.error("Error fetching details:", error);
     } finally {
@@ -88,8 +94,8 @@ export default function ResearchAndFeedback({ initialStudentId }: ResearchAndFee
   const fetchAllResearchData = async () => {
     setIsExporting(true);
     try {
-      const recordsRaw = await fetchDataDual('research_records');
-      const records = recordsRaw.map((data: ResearchRecord) => {
+      const allRecords = await localDb.getDocs<ResearchRecord>('research_records');
+      const records = allRecords.map(data => {
         const student = students.find(s => s.id === data.studentId);
         return {
           ...data,
@@ -149,13 +155,11 @@ export default function ResearchAndFeedback({ initialStudentId }: ResearchAndFee
     e.preventDefault();
     if (!selectedStudentId || !newArchive.trim()) return;
     try {
-      const archiveToSave = {
-        id: 'archive_' + Date.now(),
+      await localDb.addDoc('conversation_archives', {
         studentId: selectedStudentId,
         summary: newArchive,
         createdAt: new Date().toISOString()
-      };
-      await saveDataDual('conversation_archives', archiveToSave);
+      });
       setShowArchiveModal(false);
       setNewArchive('');
       fetchStudentDetails(selectedStudentId);
@@ -192,22 +196,40 @@ export default function ResearchAndFeedback({ initialStudentId }: ResearchAndFee
       const todoTitle = `پیگیری پژوهش: ${studentName} - ${topicTitle} (${research.stage || 'تعیین موضوع'})`;
 
       if (research.needsFollowUp) {
-        if (!followUpId) {
-          followUpId = 'todo_' + Date.now();
+        if (followUpId) {
+          try {
+            await localDb.updateDoc('todos', followUpId, {
+              title: todoTitle,
+              isResearchFollowUp: true,
+              studentId: selectedStudentId,
+              researchRecordId: research.id || ''
+            });
+          } catch (e) {
+            const newTodoId = await localDb.addDoc('todos', {
+              title: todoTitle,
+              completed: false,
+              isResearchFollowUp: true,
+              studentId: selectedStudentId,
+              researchRecordId: research.id || '',
+              createdAt: new Date().toISOString()
+            });
+            followUpId = newTodoId;
+          }
+        } else {
+          const newTodoId = await localDb.addDoc('todos', {
+            title: todoTitle,
+            completed: false,
+            isResearchFollowUp: true,
+            studentId: selectedStudentId,
+            researchRecordId: research.id || '',
+            createdAt: new Date().toISOString()
+          });
+          followUpId = newTodoId;
         }
-        await saveDataDual('todos', {
-          id: followUpId,
-          title: todoTitle,
-          completed: false,
-          isResearchFollowUp: true,
-          studentId: selectedStudentId,
-          researchRecordId: research.id || 'research_' + Date.now(),
-          createdAt: new Date().toISOString()
-        });
       } else {
         if (followUpId) {
           try {
-            await deleteDataDual('todos', followUpId);
+            await localDb.deleteDoc('todos', followUpId);
           } catch (e) {
             console.error("Error removing todo:", e);
           }
@@ -215,19 +237,22 @@ export default function ResearchAndFeedback({ initialStudentId }: ResearchAndFee
         }
       }
 
-      const recId = research.id || ('research_' + Date.now());
       const updatedData = {
         ...research,
-        id: recId,
         studentId: selectedStudentId,
         needsFollowUp: !!research.needsFollowUp,
         followUpTodoId: followUpId || null,
         updatedAt: new Date().toISOString()
       };
 
-      await saveDataDual('research_records', updatedData);
-      setResearch(updatedData as ResearchRecord);
-
+      if (research.id) {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { id, ...data } = updatedData;
+        await localDb.updateDoc('research_records', research.id, data);
+      } else {
+        const newId = await localDb.addDoc('research_records', updatedData);
+        setResearch(prev => prev ? { ...prev, id: newId } : null);
+      }
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2500);
     } catch (error) {
@@ -256,7 +281,7 @@ export default function ResearchAndFeedback({ initialStudentId }: ResearchAndFee
 
   const deleteItem = async (col: string, id: string) => {
     if (!window.confirm("حذف شود؟")) return;
-    await deleteDataDual(col, id);
+    await localDb.deleteDoc(col, id);
     fetchStudentDetails(selectedStudentId);
   };
 

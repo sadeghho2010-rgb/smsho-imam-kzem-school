@@ -38,9 +38,7 @@ import {
   Edit3,
   Trash2
 } from 'lucide-react';
-import { collection, addDoc, updateDoc, deleteDoc, doc, writeBatch } from 'firebase/firestore';
-import { db } from '../lib/firebase';
-import { fetchDataDual, saveDataDual, deleteDataDual } from '../lib/syncEngine';
+import { localDb } from '../lib/localDb';
 import { Student, StudyPeriod, PeriodicStudyLog } from '../types';
 import { useMentor, getStudentMentorKey } from '../context/MentorContext';
 import { cn } from '../lib/utils';
@@ -192,11 +190,17 @@ export default function StudyStats({ initialStudentId }: StudyStatsProps = {}) {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const sDataRaw = await fetchDataDual('students');
-      const pDataRaw = await fetchDataDual('study_periods');
-      const allL = await fetchDataDual('periodic_study_logs');
+      const [sDataRaw, pDataRaw, allL] = await Promise.all([
+        localDb.getDocs<Student>('students'),
+        localDb.getDocs<StudyPeriod>('study_periods'),
+        localDb.getDocs<PeriodicStudyLog>('periodic_study_logs')
+      ]);
+      
+      const activeStudents = sDataRaw.filter(s => s.isActive);
+      const sData = filterStudents(activeStudents, true);
 
-      const sData = filterStudents(sDataRaw.filter(s => s.isActive), true);
+      // Sort periods by createdAt descending
+      pDataRaw.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 
       // Filter periods based on mentor
       const filteredPeriods = pDataRaw.filter(p => {
@@ -245,6 +249,14 @@ export default function StudyStats({ initialStudentId }: StudyStatsProps = {}) {
     }
   };
 
+  useEffect(() => {
+    fetchData();
+    const unsub = localDb.subscribe(() => {
+      fetchData();
+    });
+    return () => unsub();
+  }, [currentMentorId, shahpooriFilter]);
+
   const fetchPeriodLogs = (periodId: string) => {
     setLogs(allLogs.filter(l => l.periodId === periodId));
   };
@@ -286,14 +298,12 @@ export default function StudyStats({ initialStudentId }: StudyStatsProps = {}) {
 
     try {
       setLoading(true);
-      const batch = writeBatch(db);
-      batch.delete(doc(db, 'study_periods', periodId));
+      await localDb.deleteDoc('study_periods', periodId);
 
       const pLogs = allLogs.filter(l => l.periodId === periodId);
-      pLogs.forEach(l => {
-        batch.delete(doc(db, 'periodic_study_logs', l.id));
-      });
-      await batch.commit();
+      for (const log of pLogs) {
+        await localDb.deleteDoc('periodic_study_logs', log.id);
+      }
 
       const remainingPeriods = periods.filter(p => p.id !== periodId);
       const remainingLogs = allLogs.filter(l => l.periodId !== periodId);
@@ -332,7 +342,7 @@ export default function StudyStats({ initialStudentId }: StudyStatsProps = {}) {
 
       if (editingPeriodId) {
         // Update existing period
-        await updateDoc(doc(db, 'study_periods', editingPeriodId), {
+        await localDb.updateDoc('study_periods', editingPeriodId, {
           title: periodTitle,
           startDate,
           endDate,
@@ -341,35 +351,31 @@ export default function StudyStats({ initialStudentId }: StudyStatsProps = {}) {
         });
 
         const existingPeriodLogs = allLogs.filter(l => l.periodId === editingPeriodId);
-        const batch = writeBatch(db);
 
-        students.forEach(student => {
+        for (const student of students) {
           const minutesStr = entryValues[student.id];
           const valMinutes = minutesStr ? parseFloat(minutesStr) : 0;
           const existingLog = existingPeriodLogs.find(l => l.studentId === student.id);
 
           if (existingLog) {
             if (valMinutes > 0) {
-              batch.update(doc(db, 'periodic_study_logs', existingLog.id), {
+              await localDb.updateDoc('periodic_study_logs', existingLog.id, {
                 hours: valMinutes / 60
               });
             } else {
-              batch.delete(doc(db, 'periodic_study_logs', existingLog.id));
+              await localDb.deleteDoc('periodic_study_logs', existingLog.id);
             }
           } else if (valMinutes > 0) {
-            const newLogRef = doc(collection(db, 'periodic_study_logs'));
-            batch.set(newLogRef, {
+            await localDb.addDoc('periodic_study_logs', {
               periodId: editingPeriodId,
               studentId: student.id,
               hours: valMinutes / 60
             });
           }
-        });
-
-        await batch.commit();
+        }
       } else {
         // Create new period
-        const periodRef = await addDoc(collection(db, 'study_periods'), {
+        const periodId = await localDb.addDoc('study_periods', {
           title: periodTitle,
           startDate,
           endDate,
@@ -378,20 +384,16 @@ export default function StudyStats({ initialStudentId }: StudyStatsProps = {}) {
           createdAt: new Date().toISOString()
         });
 
-        const batch = writeBatch(db);
-        Object.entries(entryValues).forEach(([studentId, minutesStr]) => {
+        for (const [studentId, minutesStr] of Object.entries(entryValues)) {
           const valMinutes = parseFloat(minutesStr as string);
           if (valMinutes > 0) {
-            const logRef = doc(collection(db, 'periodic_study_logs'));
-            batch.set(logRef, {
-              periodId: periodRef.id,
+            await localDb.addDoc('periodic_study_logs', {
+              periodId: periodId,
               studentId,
               hours: valMinutes / 60
             });
           }
-        });
-
-        await batch.commit();
+        }
       }
 
       setShowEntryModal(false);
@@ -427,7 +429,7 @@ export default function StudyStats({ initialStudentId }: StudyStatsProps = {}) {
   const handleAddToFollowUp = async (student: Student, currentPeriodTitle: string, hours: number) => {
     try {
       const minutes = Math.round(hours * 60);
-      await addDoc(collection(db, 'todos'), {
+      await localDb.addDoc('todos', {
         title: `[پیگیری مطالعه] بررسی وضعیت مطالعه ${student.name} در ${currentPeriodTitle} (${minutes > 0 ? `${minutes} دقیقه` : '۰ دقیقه'})`,
         completed: false,
         isStudyFollowUp: true,
@@ -510,26 +512,9 @@ export default function StudyStats({ initialStudentId }: StudyStatsProps = {}) {
         if (data.periods && Array.isArray(data.periods) && data.allLogs && Array.isArray(data.allLogs)) {
           if (!confirm("آیا از وارد کردن اطلاعات مطمئن هستید؟")) return;
 
-          const batch = writeBatch(db);
-          for (const p of data.periods) {
-            const pRef = doc(collection(db, 'study_periods'), p.id);
-            batch.set(pRef, {
-              title: p.title,
-              startDate: p.startDate,
-              endDate: p.endDate,
-              mandatoryHours: p.mandatoryHours,
-              createdAt: p.createdAt || new Date().toISOString()
-            }, { merge: true });
-          }
-          for (const l of data.allLogs) {
-            const lRef = doc(collection(db, 'periodic_study_logs'), l.id);
-            batch.set(lRef, {
-              periodId: l.periodId,
-              studentId: l.studentId,
-              hours: l.hours
-            }, { merge: true });
-          }
-          await batch.commit();
+          await localDb.bulkPut('study_periods', data.periods);
+          await localDb.bulkPut('periodic_study_logs', data.allLogs);
+
           alert("اطلاعات با موفقیت بازیابی و ثبت شد.");
           fetchData();
         } else {

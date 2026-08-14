@@ -11,10 +11,10 @@ import ResearchAndFeedback from './components/ResearchAndFeedback';
 import AttendanceAndStats from './components/AttendanceAndStats';
 import StudyStats from './components/StudyStats';
 import Summary from './components/Summary';
+import BackupAndRestore from './components/BackupAndRestore';
 import TodoList from './components/TodoList';
 import StudentComments from './components/StudentComments';
 import MentorSelectorModal from './components/MentorSelectorModal';
-import SupabaseSyncIndicator from './components/SupabaseSyncIndicator';
 import { MentorProvider, useMentor } from './context/MentorContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { Menu, X, ChevronDown, UserCheck, ShieldCheck, Filter, Users, Layers } from 'lucide-react';
@@ -67,6 +67,8 @@ function AppContent() {
         return <TodoList />;
       case 'summary':
         return <Summary onNavigate={handleNavigate} initialStudentId={selectedStudentIdForTab} />;
+      case 'backup':
+        return <BackupAndRestore />;
       default:
         return <TodoList />;
     }
@@ -119,7 +121,8 @@ function AppContent() {
                    activeTab === 'research' ? 'بخش پژوهش و مقالات' :
                    activeTab === 'attendance' ? 'حضور و غیاب' :
                    activeTab === 'comments' ? 'نظرات و صحبت‌ها' :
-                   activeTab === 'stats' ? 'آمار و گزارشات' : 'جمع‌بندی نهایی'}
+                   activeTab === 'stats' ? 'آمار و گزارشات' :
+                   activeTab === 'summary' ? 'جمع‌بندی نهایی' : 'پشتیبان‌گیری و بازیابی داده‌ها'}
                 </h2>
                 {activeTab !== 'students' && (
                   <span className="text-[10px] text-slate-400 font-medium">
@@ -132,10 +135,8 @@ function AppContent() {
               </div>
             </div>
 
-            {/* Supabase & Laptop Storage Sync Indicator & Mentor Badge */}
+            {/* Current Mentor Selector Badge */}
             <div className="flex items-center gap-2">
-              <SupabaseSyncIndicator />
-
               <button
                 type="button"
                 onClick={() => setIsMentorModalOpen(true)}
