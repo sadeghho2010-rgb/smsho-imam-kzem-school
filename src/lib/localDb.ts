@@ -96,12 +96,44 @@ export const COLLECTIONS = [
 
 export type CollectionName = typeof COLLECTIONS[number] | string;
 
+export function isStudentActive(val: any): boolean {
+  if (val === null || val === undefined) return false;
+  if (typeof val === 'object') {
+    const inner = val.isActive !== undefined ? val.isActive : (val.active !== undefined ? val.active : (val.status !== undefined ? val.status : (val.IsActive !== undefined ? val.IsActive : undefined)));
+    if (inner !== undefined && inner !== null) {
+      return isStudentActive(inner);
+    }
+    if (val.status === 'فعال' || val.status === 'active') return true;
+    return false;
+  }
+  if (val === true || val === 1 || val === '1') return true;
+  if (typeof val === 'string') {
+    const str = val.trim().toLowerCase();
+    if (['true', '1', 'فعال', 'active', 'yes', 'بله', 'در حال تحصیل'].includes(str)) return true;
+    if (['false', '0', 'غیرفعال', 'غیر فعال', 'inactive', 'no', 'خیر', 'فارغ التحصیل', 'انصرافی'].includes(str)) return false;
+  }
+  return Boolean(val);
+}
+
+export function normalizeStudent(item: any): any {
+  if (!item || typeof item !== 'object') return item;
+  const isAct = isStudentActive(item);
+  return {
+    ...item,
+    id: item.id || `local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+    isActive: isAct,
+    grade: item.grade ? String(item.grade).trim() : '',
+    name: item.name ? String(item.name).trim() : 'نامشخص',
+    createdAt: item.createdAt || new Date().toISOString()
+  };
+}
+
 export function getMentorKeyForGrade(grade?: string): 'hayati' | 'hosseini' | 'soleimani' | 'other' {
   if (!grade) return 'other';
-  const g = grade.trim().toLowerCase();
-  if (g.includes('7') || g.includes('۷') || g.includes('هفت')) return 'hayati';
-  if (g.includes('8') || g.includes('۸') || g.includes('هشت')) return 'hosseini';
-  if (g.includes('9') || g.includes('۹') || g.includes('نه')) return 'soleimani';
+  const g = String(grade).trim().toLowerCase();
+  if (g.includes('7') || g.includes('۷') || g.includes('هفت') || g === '7' || g === '۷') return 'hayati';
+  if (g.includes('8') || g.includes('۸') || g.includes('هشت') || g === '8' || g === '۸') return 'hosseini';
+  if (g.includes('9') || g.includes('۹') || g.includes('نه') || g.includes('نهم') || g === '9' || g === '۹') return 'soleimani';
   return 'other';
 }
 
@@ -146,6 +178,8 @@ class LocalDatabase {
         resolve(db);
         // Check if database is empty, if so populate initial sample seed data
         await this.checkAndSeedDefaultData(db);
+        // Auto-migrate and normalize any students with non-boolean isActive
+        this.autoMigrateStudents(db);
       };
 
       request.onerror = (event) => {
@@ -218,8 +252,12 @@ class LocalDatabase {
   async addDoc(collectionName: CollectionName, data: any): Promise<string> {
     const resolvedCol = this.resolveCollection(collectionName as string);
     const db = await this.getDb();
-    const id = data?.id || `local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-    const record = { ...data, id };
+    let record = { ...data };
+    if (resolvedCol === 'students') {
+      record = normalizeStudent(record);
+    }
+    const id = record.id || `local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    record.id = id;
 
     return new Promise((resolve, reject) => {
       const transaction = db.transaction(resolvedCol, 'readwrite');
@@ -247,7 +285,10 @@ class LocalDatabase {
 
       getReq.onsuccess = () => {
         const existing = getReq.result || { id };
-        const updated = { ...existing, ...data, id };
+        let updated = { ...existing, ...data, id };
+        if (resolvedCol === 'students') {
+          updated = normalizeStudent(updated);
+        }
         const putReq = store.put(updated);
         putReq.onsuccess = () => {
           this.notify();
@@ -297,6 +338,33 @@ class LocalDatabase {
     });
   }
 
+  private async autoMigrateStudents(db: IDBDatabase): Promise<void> {
+    try {
+      if (!db.objectStoreNames.contains('students')) return;
+      const transaction = db.transaction('students', 'readwrite');
+      const store = transaction.objectStore('students');
+      const request = store.getAll();
+      request.onsuccess = () => {
+        const students = request.result || [];
+        let updatedCount = 0;
+        for (const s of students) {
+          const currentIsActive = s.isActive;
+          const normalizedActive = isStudentActive(s);
+          if (currentIsActive !== normalizedActive || typeof currentIsActive !== 'boolean') {
+            const normalized = normalizeStudent(s);
+            store.put(normalized);
+            updatedCount++;
+          }
+        }
+        if (updatedCount > 0) {
+          this.notify();
+        }
+      };
+    } catch (e) {
+      console.warn('autoMigrateStudents non-fatal error:', e);
+    }
+  }
+
   // Bulk add or overwrite documents in a collection
   async bulkPut(collectionName: CollectionName, items: any[]): Promise<void> {
     if (!items || items.length === 0) return;
@@ -307,10 +375,13 @@ class LocalDatabase {
       const store = transaction.objectStore(resolvedCol);
 
       for (const item of items) {
-        if (!item.id) {
-          item.id = `local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        let record = { ...item };
+        if (resolvedCol === 'students') {
+          record = normalizeStudent(record);
+        } else if (!record.id) {
+          record.id = `local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
         }
-        store.put(item);
+        store.put(record);
       }
 
       transaction.oncomplete = () => {

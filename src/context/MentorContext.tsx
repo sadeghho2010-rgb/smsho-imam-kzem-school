@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState } from 'react';
 import { Student } from '../types';
+import { isStudentActive, getMentorKeyForGrade } from '../lib/localDb';
 
 export type MentorId = 'hayati' | 'hosseini' | 'soleimani' | 'shahpoori';
 export type ShahpooriFilter = 'all' | 'hayati' | 'hosseini' | 'soleimani';
@@ -66,12 +67,7 @@ export const MENTORS: Record<MentorId, MentorInfo> = {
 };
 
 export function getStudentMentorKey(grade?: string): 'hayati' | 'hosseini' | 'soleimani' | 'other' {
-  if (!grade) return 'other';
-  const g = grade.trim().toLowerCase();
-  if (g.includes('7') || g.includes('۷') || g.includes('هفت')) return 'hayati';
-  if (g.includes('8') || g.includes('۸') || g.includes('هشت')) return 'hosseini';
-  if (g.includes('9') || g.includes('۹') || g.includes('نه')) return 'soleimani';
-  return 'other';
+  return getMentorKeyForGrade(grade);
 }
 
 interface MentorContextType {
@@ -129,7 +125,7 @@ export const MentorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (!onlyActive) return true;
 
       // For active students / other tabs:
-      if (!s.isActive) return false;
+      if (!isStudentActive(s)) return false;
 
       // If Shahpoori (Head Manager):
       if (currentMentorId === 'shahpoori') {

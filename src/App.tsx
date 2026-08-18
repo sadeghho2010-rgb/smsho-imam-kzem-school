@@ -14,9 +14,10 @@ import Summary from './components/Summary';
 import BackupAndRestore from './components/BackupAndRestore';
 import TodoList from './components/TodoList';
 import StudentComments from './components/StudentComments';
+import MentorSelectorModal from './components/MentorSelectorModal';
 import { MentorProvider, useMentor } from './context/MentorContext';
 import { motion, AnimatePresence } from 'motion/react';
-import { Menu, X, ShieldCheck, Layers } from 'lucide-react';
+import { Menu, X, ShieldCheck, Layers, ChevronDown, UserCheck } from 'lucide-react';
 import { cn } from './lib/utils';
 
 function AppContent() {
@@ -28,7 +29,8 @@ function AppContent() {
     currentMentor, 
     currentMentorId, 
     shahpooriFilter, 
-    setShahpooriFilter 
+    setShahpooriFilter,
+    setIsMentorModalOpen 
   } = useMentor();
 
   useEffect(() => {
@@ -130,8 +132,29 @@ function AppContent() {
               </div>
             </div>
 
-            {/* Top Right Header Space */}
+            {/* Top Right Header Space - Active Mentor Switcher */}
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsMentorModalOpen(true)}
+                className="flex items-center gap-2.5 py-1.5 px-3 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border border-slate-200 hover:border-slate-300 rounded-2xl transition-all shadow-xs group"
+                title="کلیک جهت مشاهده و تغییر کاربر / استاد"
+              >
+                <div className={cn("w-8 h-8 rounded-xl text-white font-black flex items-center justify-center text-xs shadow-xs shrink-0", currentMentor.avatarBg)}>
+                  {currentMentor.name.split(' ')[1]?.[0] || 'ا'}
+                </div>
+                <div className="flex flex-col text-right">
+                  <div className="text-xs font-black text-slate-800 leading-tight flex items-center gap-1">
+                    <span>{currentMentor.name}</span>
+                    {currentMentor.isHeadManager && <ShieldCheck size={13} className="text-amber-600 shrink-0" />}
+                  </div>
+                  <div className="flex items-center gap-1 text-[10px] text-slate-500 font-medium">
+                    <span>{currentMentor.role}</span>
+                    <span className="text-slate-300">•</span>
+                    <span className="text-indigo-600 font-bold">{currentMentor.gradeLabel}</span>
+                  </div>
+                </div>
+                <ChevronDown size={15} className="text-slate-400 group-hover:text-slate-700 transition-transform group-hover:translate-y-0.5 mr-1" />
+              </button>
             </div>
           </div>
 
@@ -216,6 +239,9 @@ function AppContent() {
           </AnimatePresence>
         </main>
       </div>
+
+      {/* Mentor/User Selector Modal */}
+      <MentorSelectorModal />
     </div>
   );
 }

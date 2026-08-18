@@ -18,7 +18,7 @@ import {
   RotateCcw
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { localDb } from '../lib/localDb';
+import { localDb, isStudentActive } from '../lib/localDb';
 import { Student } from '../types';
 import { useMentor } from '../context/MentorContext';
 import { cn } from '../lib/utils';
@@ -30,7 +30,15 @@ interface StudentListProps {
 }
 
 export default function StudentList({ onlyActive = false, initialStudentId }: StudentListProps) {
-  const { filterStudents, getMentorForStudent, currentMentor } = useMentor();
+  const { 
+    filterStudents, 
+    getMentorForStudent, 
+    currentMentor, 
+    currentMentorId, 
+    setIsMentorModalOpen,
+    shahpooriFilter,
+    setShahpooriFilter 
+  } = useMentor();
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -50,6 +58,7 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
     nationalId: '', 
     phoneNumber: '', 
     grade: '',
+    isActive: true,
     fatherOccupation: '',
     birthPlace: '',
     birthDate: '',
@@ -126,7 +135,7 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
     setLoading(true);
     try {
       const allData = await localDb.getDocs<Student>('students');
-      const data = onlyActive ? allData.filter(s => s.isActive) : allData;
+      const data = onlyActive ? allData.filter(s => isStudentActive(s)) : allData;
       
       // Sort by grade (numerically if possible)
       const sortedData = data.sort((a, b) => {
@@ -159,16 +168,20 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
     }
     
     try {
+      const activeState = newStudent.isActive !== undefined ? isStudentActive(newStudent.isActive) : true;
       if (editingStudent) {
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { id, createdAt, ...updateData } = newStudent as Student;
         
-        await localDb.updateDoc('students', editingStudent.id, updateData);
+        await localDb.updateDoc('students', editingStudent.id, {
+          ...updateData,
+          isActive: activeState
+        });
         alert('اطلاعات با موفقیت بروزرسانی شد');
       } else {
         await localDb.addDoc('students', {
           ...newStudent,
-          isActive: false,
+          isActive: activeState,
           createdAt: new Date().toISOString()
         });
         alert('طلبه جدید با موفقیت ثبت شد');
@@ -223,12 +236,18 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
   };
 
   const resetForm = () => {
+    let defaultGrade = '';
+    if (currentMentorId === 'hayati') defaultGrade = 'پایه 7';
+    else if (currentMentorId === 'hosseini') defaultGrade = 'پایه 8';
+    else if (currentMentorId === 'soleimani') defaultGrade = 'پایه 9';
+
     setNewStudent({ 
       name: '', 
       photoUrl: '',
       nationalId: '', 
       phoneNumber: '', 
-      grade: '',
+      grade: defaultGrade,
+      isActive: true,
       fatherOccupation: '',
       birthPlace: '',
       birthDate: '',
@@ -246,13 +265,17 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
 
   const handleEdit = (student: Student) => {
     setEditingStudent(student);
-    setNewStudent(student);
+    setNewStudent({
+      ...student,
+      isActive: isStudentActive(student)
+    });
     setShowAddModal(true);
   };
 
-  const toggleActive = async (id: string, currentStatus: boolean) => {
+  const toggleActive = async (id: string, currentStatus: any) => {
     try {
-      await localDb.updateDoc('students', id, { isActive: !currentStatus });
+      const activeBool = isStudentActive(currentStatus);
+      await localDb.updateDoc('students', id, { isActive: !activeBool });
       fetchStudents();
     } catch (error) {
       console.error("Error updating student:", error);
@@ -514,10 +537,20 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
     <div className="space-y-6" dir="rtl">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
         <div className="space-y-1">
-          <h2 className="text-xl font-bold text-slate-800">
-            {onlyActive ? 'کاربران فعال' : 'مدیریت کاربران'}
-          </h2>
-          <p className="text-xs text-slate-400">فهرست طلاب پایه به همراه وضعیت تحصیلی ({filteredStudents.length} نفر)</p>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-bold text-slate-800">
+              {onlyActive ? 'کاربران فعال' : 'مدیریت همه کاربران'}
+            </h2>
+            <div className={cn("px-2.5 py-0.5 rounded-full text-xs font-bold border flex items-center gap-1.5", currentMentor.badgeBg, currentMentor.badgeText, currentMentor.badgeBorder)}>
+              <span className={cn("w-2 h-2 rounded-full", currentMentor.dotColor)}></span>
+              <span>{currentMentor.name} ({currentMentor.gradeLabel})</span>
+            </div>
+          </div>
+          <p className="text-xs text-slate-400">
+            {onlyActive 
+              ? `فهرست طلاب فعال در حال تحصیل (${filteredStudents.length} طلبه فعال)` 
+              : `فهرست جامع کلیه پرونده‌های ثبت‌شده (${filteredStudents.length} طلبه)`}
+          </p>
         </div>
         
         <div className="flex flex-wrap items-center gap-3">
@@ -532,24 +565,24 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
             />
           </div>
           
+          <button 
+            onClick={() => { resetForm(); setShowAddModal(true); }}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-colors shadow-sm cursor-pointer"
+          >
+            <Plus size={16} />
+            <span>افزودن طلبه جدید</span>
+          </button>
+          
+          <button 
+            onClick={handleExcelExport}
+            className="flex items-center gap-2 px-4 py-2 border border-slate-200 bg-white text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-50 transition-colors shadow-sm cursor-pointer"
+          >
+            <FileSpreadsheet size={16} />
+            <span>خروجی اکسل</span>
+          </button>
+
           {!onlyActive && (
             <>
-              <button 
-                onClick={() => setShowAddModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
-              >
-                <Plus size={16} />
-                <span>افزودن دستی</span>
-              </button>
-              
-              <button 
-                onClick={handleExcelExport}
-                className="flex items-center gap-2 px-4 py-2 border border-slate-200 bg-white text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-50 transition-colors shadow-sm"
-              >
-                <FileSpreadsheet size={16} />
-                <span>خروجی اکسل</span>
-              </button>
-              
               <label className="flex items-center gap-2 px-4 py-2 border border-slate-200 bg-white text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-50 transition-colors cursor-pointer shadow-sm">
                 <FileSpreadsheet size={16} />
                 <span>وارد کردن اکسل</span>
@@ -559,7 +592,7 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
               {students.length > 0 && (
                 <button 
                   onClick={() => setShowDeleteAllModal(true)}
-                  className="flex items-center gap-2 px-4 py-2 border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 hover:border-rose-300 text-xs font-bold rounded-lg transition-colors shadow-sm"
+                  className="flex items-center gap-2 px-4 py-2 border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 hover:border-rose-300 text-xs font-bold rounded-lg transition-colors shadow-sm cursor-pointer"
                   title="حذف کامل تمامی کاربران"
                 >
                   <Trash2 size={16} />
@@ -881,16 +914,18 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
                   {visibleColumns.includes('isActive') && (
                     <td className="px-6 py-4">
                       <button 
+                        type="button"
                         onClick={() => toggleActive(student.id, student.isActive)}
                         className={cn(
-                          "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold transition-all",
-                          student.isActive 
-                            ? "bg-emerald-50 text-emerald-700 border border-emerald-100" 
-                            : "bg-slate-50 text-slate-400 border border-slate-100"
+                          "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer",
+                          isStudentActive(student.isActive) 
+                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100" 
+                            : "bg-slate-50 text-slate-400 border border-slate-200 hover:bg-slate-100"
                         )}
+                        title="جهت تغییر وضعیت طلبه کلیک کنید"
                       >
-                        <div className={cn("w-1.5 h-1.5 rounded-full", student.isActive ? "bg-emerald-500" : "bg-slate-300")}></div>
-                        {student.isActive ? 'فعال' : 'غیرفعال'}
+                        <div className={cn("w-1.5 h-1.5 rounded-full", isStudentActive(student.isActive) ? "bg-emerald-500" : "bg-slate-300")}></div>
+                        {isStudentActive(student.isActive) ? 'فعال' : 'غیرفعال'}
                       </button>
                     </td>
                   )}
@@ -1008,12 +1043,62 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
                   </div>
                   <div>
                     <label className="block text-[11px] font-bold text-slate-500 mb-1">پایه تحصیلی</label>
+                    <div className="flex items-center gap-1 mb-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setNewStudent(prev => ({ ...prev, grade: 'پایه 7' }))}
+                        className={cn(
+                          "px-2 py-0.5 text-[10px] rounded border transition-colors",
+                          newStudent.grade?.includes('7') || newStudent.grade?.includes('۷')
+                            ? "bg-emerald-100 text-emerald-800 border-emerald-300 font-bold"
+                            : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                        )}
+                      >
+                        پایه ۷ (حیاتی)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNewStudent(prev => ({ ...prev, grade: 'پایه 8' }))}
+                        className={cn(
+                          "px-2 py-0.5 text-[10px] rounded border transition-colors",
+                          newStudent.grade?.includes('8') || newStudent.grade?.includes('۸')
+                            ? "bg-sky-100 text-sky-800 border-sky-300 font-bold"
+                            : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                        )}
+                      >
+                        پایه ۸ (حسینی)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNewStudent(prev => ({ ...prev, grade: 'پایه 9' }))}
+                        className={cn(
+                          "px-2 py-0.5 text-[10px] rounded border transition-colors",
+                          newStudent.grade?.includes('9') || newStudent.grade?.includes('۹')
+                            ? "bg-purple-100 text-purple-800 border-purple-300 font-bold"
+                            : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                        )}
+                      >
+                        پایه ۹ (سلیمانی)
+                      </button>
+                    </div>
                     <input 
                       type="text" 
+                      placeholder="مثال: پایه 7 یا پایه 8"
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-                      value={newStudent.grade}
+                      value={newStudent.grade || ''}
                       onChange={(e) => setNewStudent({...newStudent, grade: e.target.value})}
                     />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 mb-1">وضعیت در سامانه (کاربر فعال / غیرفعال)</label>
+                    <select 
+                      className="w-full px-3 py-2 text-sm font-bold border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                      value={isStudentActive(newStudent.isActive) ? 'active' : 'inactive'}
+                      onChange={(e) => setNewStudent({...newStudent, isActive: e.target.value === 'active'})}
+                    >
+                      <option value="active">🟢 فعال (در حال تحصیل / نمایش در کاربران فعال و برنامه ها)</option>
+                      <option value="inactive">⚪ غیرفعال (بایگانی / عدم نمایش در کاربران فعال)</option>
+                    </select>
                   </div>
                   <div>
                     <label className="block text-[11px] font-bold text-slate-500 mb-1">تاریخ تولد</label>
