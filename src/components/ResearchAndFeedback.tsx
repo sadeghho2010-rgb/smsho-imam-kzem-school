@@ -22,8 +22,7 @@ import { useMentor } from '../context/MentorContext';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 
-// @ts-ignore
-import html2pdf from 'html2pdf.js';
+import { exportElementToPdf } from '../lib/pdfExport';
 
 interface ResearchAndFeedbackProps {
   initialStudentId?: string;
@@ -133,22 +132,25 @@ export default function ResearchAndFeedback({ initialStudentId }: ResearchAndFee
     setShowReportModal(true);
   };
 
-  const handleDownloadPDF = () => {
+  const handleDownloadPDF = async () => {
     const element = reportRef.current;
     if (!element) return;
     
     setIsExporting(true);
-    const opt: any = {
-      margin: 10,
-      filename: `گزارش_پژوهش_${new Date().toLocaleDateString('fa-IR').replace(/\//g, '-')}.pdf`,
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, letterRendering: true },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-    };
-
-    html2pdf().set(opt).from(element).save().then(() => {
+    try {
+      const fileName = `گزارش_پژوهش_${new Date().toLocaleDateString('fa-IR').replace(/\//g, '-')}.pdf`;
+      await exportElementToPdf({
+        element,
+        filename: fileName,
+        orientation: 'portrait',
+        marginMM: 8
+      });
+    } catch (err) {
+      console.error("PDF export error:", err);
+      alert("خطا در دانلود فایل PDF.");
+    } finally {
       setIsExporting(false);
-    });
+    }
   };
 
   const handleAddArchive = async (e: React.FormEvent) => {

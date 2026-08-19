@@ -11,7 +11,8 @@ import {
   GraduationCap,
   HardDrive,
   RefreshCw,
-  ShieldCheck
+  ShieldCheck,
+  FolderOpen
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useMentor } from '../context/MentorContext';
@@ -23,7 +24,7 @@ interface SidebarProps {
   onToggle: () => void;
 }
 
-const menuItems = [
+const baseMenuItems = [
   { id: 'todos', label: 'پیگیری‌ها', icon: GraduationCap },
   { id: 'students', label: 'همه کاربران', icon: Users },
   { id: 'active-students', label: 'کاربران فعال', icon: UserCheck },
@@ -33,6 +34,7 @@ const menuItems = [
   { id: 'attendance', label: 'حضور و غیاب', icon: CheckSquare },
   { id: 'comments', label: 'نظرات و صحبت‌ها', icon: MessageSquare },
   { id: 'summary', label: 'جمع‌بندی و هوش مصنوعی', icon: BrainCircuit },
+  { id: 'manager-files', label: 'فایل‌های ارسالی مدیر', icon: FolderOpen },
   { id: 'backup', label: 'پشتیبان‌گیری', icon: HardDrive },
 ];
 
@@ -95,8 +97,12 @@ export default function Sidebar({ activeTab, setActiveTab, isOpen }: SidebarProp
 
       {/* Navigation Menu */}
       <nav className="flex-1 p-3 overflow-y-auto space-y-1">
-        {menuItems.map((item) => {
+        {baseMenuItems.map((item) => {
           const Icon = item.icon;
+          const label = item.id === 'manager-files'
+            ? (currentMentor.isHeadManager ? 'ارسال فایل برای کاربران' : 'فایل‌های ارسالی مدیر')
+            : item.label;
+
           return (
             <button
               key={item.id}
@@ -112,7 +118,7 @@ export default function Sidebar({ activeTab, setActiveTab, isOpen }: SidebarProp
                 "shrink-0 transition-colors",
                 activeTab === item.id ? "text-indigo-600" : "text-slate-400 group-hover:text-slate-600"
               )} />
-              <span className="text-xs sm:text-sm font-medium">{item.label}</span>
+              <span className="text-xs sm:text-sm font-medium">{label}</span>
             </button>
           );
         })}

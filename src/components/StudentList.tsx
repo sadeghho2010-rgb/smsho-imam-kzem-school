@@ -15,10 +15,18 @@ import {
   ArrowUp,
   ArrowDown,
   Filter,
-  RotateCcw
+  RotateCcw,
+  GitMerge,
+  ShieldCheck,
+  Sparkles,
+  AlertCircle,
+  CheckCheck,
+  RefreshCw,
+  CopyCheck,
+  Users
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { localDb, isStudentActive } from '../lib/localDb';
+import { localDb, isStudentActive, DuplicateGroup, MergeResult } from '../lib/localDb';
 import { Student } from '../types';
 import { useMentor } from '../context/MentorContext';
 import { cn } from '../lib/utils';
@@ -79,6 +87,42 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
   const [visibleColumns, setVisibleColumns] = useState<string[]>([
     'index', 'grade', 'name', 'nationalId', 'isActive', 'actions'
   ]);
+
+  // Duplicate Students Management
+  const [showDuplicateModal, setShowDuplicateModal] = useState<boolean>(false);
+  const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup[]>([]);
+  const [isScanningDuplicates, setIsScanningDuplicates] = useState<boolean>(false);
+  const [isMergingDuplicates, setIsMergingDuplicates] = useState<boolean>(false);
+  const [mergeResult, setMergeResult] = useState<MergeResult | null>(null);
+
+  const handleOpenDuplicateModal = async () => {
+    setShowDuplicateModal(true);
+    setMergeResult(null);
+    setIsScanningDuplicates(true);
+    try {
+      const groups = await localDb.scanDuplicateStudents();
+      setDuplicateGroups(groups);
+    } catch (e) {
+      console.error('Error scanning duplicate students:', e);
+    } finally {
+      setIsScanningDuplicates(false);
+    }
+  };
+
+  const handleExecuteMergeDuplicates = async () => {
+    setIsMergingDuplicates(true);
+    try {
+      const result = await localDb.mergeAndDeduplicateStudents();
+      setMergeResult(result);
+      const updatedGroups = await localDb.scanDuplicateStudents();
+      setDuplicateGroups(updatedGroups);
+      await fetchStudents();
+    } catch (e: any) {
+      alert('خطا در ادغام اطلاعات کاربران تکراری: ' + (e?.message || 'نامشخص'));
+    } finally {
+      setIsMergingDuplicates(false);
+    }
+  };
 
   // Filter & Sort States
   const [sortBy, setSortBy] = useState<string>('grade');
@@ -588,6 +632,15 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
                 <span>وارد کردن اکسل</span>
                 <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleExcelImport} />
               </label>
+
+              <button 
+                onClick={handleOpenDuplicateModal}
+                className="flex items-center gap-2 px-4 py-2 border border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 hover:border-amber-400 text-xs font-bold rounded-lg transition-colors shadow-sm cursor-pointer"
+                title="شناسایی طلاب تکراری بر اساس کد ملی، ادغام کامل سوابق و حذف پرونده‌های تکراری"
+              >
+                <GitMerge size={16} className="text-amber-700" />
+                <span>حذف کاربر تکراری</span>
+              </button>
 
               {students.length > 0 && (
                 <button 
@@ -1331,6 +1384,226 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
                   )}
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Deduplicate & Merge Users Modal */}
+      <AnimatePresence>
+        {showDuplicateModal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto space-y-5 shadow-2xl border border-slate-100 text-right"
+              dir="rtl"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-amber-100 text-amber-700 rounded-xl flex items-center justify-center">
+                    <GitMerge size={22} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-800">شناسایی و حذف کاربران تکراری</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">ملاک تطابق: یکسان بودن شماره کد ملی</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowDuplicateModal(false)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
+                >
+                  <XCircle size={20} />
+                </button>
+              </div>
+
+              {/* Security Banner */}
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 flex items-start gap-3 text-emerald-900">
+                <ShieldCheck size={20} className="text-emerald-600 shrink-0 mt-0.5" />
+                <div className="text-xs space-y-1">
+                  <p className="font-bold">تضمین عدم حذف و از بین رفتن اطلاعات (Merge Safe):</p>
+                  <p className="text-emerald-700 leading-relaxed">
+                    سیستم قبل از حذف هر پرونده، تمامی اطلاعات اعم از عکس پرسنلی، نمرات امتحانات شفاهی، کارگاه‌های پژوهشی، حضور و غیاب، سوابق مصاحبه، برنامه‌ها و تکالیف را به پرونده اصلی منتقل و ادغام می‌کند.
+                  </p>
+                </div>
+              </div>
+
+              {/* State 1: Scanning */}
+              {isScanningDuplicates ? (
+                <div className="py-12 text-center space-y-3">
+                  <RefreshCw size={28} className="animate-spin text-indigo-600 mx-auto" />
+                  <p className="text-xs font-bold text-slate-600">در حال پایش و تطبیق کدهای ملی طلاب...</p>
+                </div>
+              ) : mergeResult ? (
+                /* State 2: Merge Result Summary */
+                <div className="space-y-4 py-2">
+                  <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl text-center space-y-2">
+                    <CheckCheck size={32} className="text-indigo-600 mx-auto" />
+                    <h4 className="text-sm font-bold text-indigo-900">عملیات ادغام و پاکسازی با موفقیت انجام شد</h4>
+                    <p className="text-xs text-indigo-700 leading-relaxed">{mergeResult.message}</p>
+                  </div>
+
+                  {mergeResult.details.length > 0 && (
+                    <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
+                      <div className="bg-slate-50 px-3 py-2 font-bold text-slate-700 border-b border-slate-200">
+                        جزئیات پرونده‌های ادغام‌شده:
+                      </div>
+                      <div className="divide-y divide-slate-100 max-h-48 overflow-y-auto">
+                        {mergeResult.details.map((d, idx) => (
+                          <div key={idx} className="p-3 flex items-center justify-between">
+                            <div>
+                              <span className="font-bold text-slate-800">{d.primaryStudentName}</span>
+                              <span className="text-slate-400 mr-2">(کد ملی: {d.nationalId})</span>
+                            </div>
+                            <span className="px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded-md text-[11px] font-bold">
+                              {d.removedCount} رکورد تکراری ادغام شد
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowDuplicateModal(false)}
+                      className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-colors shadow-sm"
+                    >
+                      تایید و بازگشت به فهرست کاربران
+                    </button>
+                  </div>
+                </div>
+              ) : duplicateGroups.length === 0 ? (
+                /* State 3: No duplicates found */
+                <div className="py-8 text-center space-y-3">
+                  <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto">
+                    <CheckCircle size={26} />
+                  </div>
+                  <h4 className="text-sm font-bold text-slate-800">هیچ کاربر تکراری یافت نشد</h4>
+                  <p className="text-xs text-slate-500 leading-relaxed max-w-md mx-auto">
+                    کلیه کدهای ملی طلاب در پایگاه داده یکتا هستند و هیچ تداخلی در پرونده‌ها مشاهده نشد.
+                  </p>
+                  <div className="pt-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowDuplicateModal(false)}
+                      className="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors"
+                    >
+                      بستن
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* State 4: Duplicates detected */
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-xl p-3 text-amber-900 text-xs">
+                    <div className="flex items-center gap-2">
+                      <AlertCircle size={18} className="text-amber-600 shrink-0" />
+                      <span>
+                        تعداد <strong>{duplicateGroups.length}</strong> گروه کاربر با کد ملی یکسان شناسایی شد.
+                      </span>
+                    </div>
+                    <span className="font-bold text-amber-700">
+                      مجموعاً {duplicateGroups.reduce((acc, g) => acc + (g.students.length - 1), 0)} رکورد تکراری
+                    </span>
+                  </div>
+
+                  <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+                    {duplicateGroups.map((grp, gIdx) => (
+                      <div key={gIdx} className="border border-slate-200 rounded-xl p-3.5 bg-slate-50/60 space-y-2.5">
+                        <div className="flex items-center justify-between text-xs border-b border-slate-200 pb-2">
+                          <span className="font-bold text-slate-700">کد ملی: {grp.nationalId}</span>
+                          <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded text-[11px] font-bold">
+                            {grp.students.length} پرونده ثبت‌شده
+                          </span>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          {grp.students.map((st, sIdx) => {
+                            const isPrimary = st.id === grp.primaryCandidateId;
+                            return (
+                              <div 
+                                key={sIdx} 
+                                className={cn(
+                                  "p-2.5 rounded-lg text-xs flex items-center justify-between border",
+                                  isPrimary 
+                                    ? "bg-emerald-50/70 border-emerald-200 text-emerald-900" 
+                                    : "bg-white border-slate-200 text-slate-700"
+                                )}
+                              >
+                                <div className="flex items-center gap-2">
+                                  {st.photoUrl ? (
+                                    <img src={st.photoUrl} alt="" className="w-7 h-7 rounded-full object-cover border border-slate-200" />
+                                  ) : (
+                                    <div className="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 font-bold text-[10px]">
+                                      {st.name?.charAt(0) || 'ط'}
+                                    </div>
+                                  )}
+                                  <div>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="font-bold">{st.name}</span>
+                                      {st.grade && <span className="text-[11px] text-slate-500">({st.grade})</span>}
+                                    </div>
+                                    <div className="text-[10px] text-slate-400 mt-0.5">
+                                      {st.phoneNumber ? `همراه: ${st.phoneNumber}` : 'بدون شماره'}
+                                      {isStudentActive(st) ? ' • فعال' : ' • غیرفعال'}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div>
+                                  {isPrimary ? (
+                                    <span className="px-2 py-0.5 bg-emerald-600 text-white rounded text-[10px] font-bold flex items-center gap-1">
+                                      <CheckCircle size={12} />
+                                      پرونده اصلی نگهداری
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 bg-rose-50 text-rose-600 border border-rose-200 rounded text-[10px] font-bold">
+                                      ادغام در پرونده اصلی
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-3 pt-3 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setShowDuplicateModal(false)}
+                      disabled={isMergingDuplicates}
+                      className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors"
+                    >
+                      انصراف
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleExecuteMergeDuplicates}
+                      disabled={isMergingDuplicates}
+                      className="flex-1 py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+                    >
+                      {isMergingDuplicates ? (
+                        <>
+                          <RefreshCw size={16} className="animate-spin" />
+                          <span>در حال ادغام اطلاعات...</span>
+                        </>
+                      ) : (
+                        <>
+                          <GitMerge size={16} />
+                          <span>ادغام کامل اطلاعات و حذف تکراری‌ها</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
             </motion.div>
           </div>
         )}

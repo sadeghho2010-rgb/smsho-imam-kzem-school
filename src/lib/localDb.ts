@@ -75,7 +75,7 @@ export interface StudentBackupPackage {
 }
 
 const DB_NAME = 'TOLAB_OFFLINE_LOCAL_DB';
-const DB_VERSION = 1;
+const DB_VERSION = 5;
 
 export const COLLECTIONS = [
   'students',
@@ -91,10 +91,43 @@ export const COLLECTIONS = [
   'todos',
   'student_comments',
   'oral_exams',
-  'settings'
+  'settings',
+  'cloud_backups',
+  'manager_files'
 ] as const;
 
 export type CollectionName = typeof COLLECTIONS[number] | string;
+
+export function normalizeNationalId(id?: any): string {
+  if (!id) return '';
+  const s = String(id).trim();
+  return s
+    .replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d).toString())
+    .replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString())
+    .replace(/\s+/g, '')
+    .replace(/[-_]/g, '');
+}
+
+export interface DuplicateGroup {
+  nationalId: string;
+  students: any[];
+  primaryCandidateId: string;
+  totalRelatedRecords: number;
+}
+
+export interface MergeResult {
+  success: boolean;
+  duplicateGroupsCount: number;
+  mergedStudentsCount: number;
+  updatedRelatedRecordsCount: number;
+  message: string;
+  details: {
+    nationalId: string;
+    primaryStudentName: string;
+    mergedNames: string[];
+    removedCount: number;
+  }[];
+}
 
 export function isStudentActive(val: any): boolean {
   if (val === null || val === undefined) return false;
@@ -216,17 +249,24 @@ class LocalDatabase {
   async getDocs<T = any>(collectionName: CollectionName): Promise<T[]> {
     const resolvedCol = this.resolveCollection(collectionName as string);
     const db = await this.getDb();
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(resolvedCol, 'readonly');
-      const store = transaction.objectStore(resolvedCol);
-      const request = store.getAll();
+    if (!db.objectStoreNames.contains(resolvedCol)) return [];
 
-      request.onsuccess = () => {
-        resolve((request.result || []) as T[]);
-      };
-      request.onerror = () => {
-        reject(request.error);
-      };
+    return new Promise((resolve, reject) => {
+      try {
+        const transaction = db.transaction(resolvedCol, 'readonly');
+        const store = transaction.objectStore(resolvedCol);
+        const request = store.getAll();
+
+        request.onsuccess = () => {
+          resolve((request.result || []) as T[]);
+        };
+        request.onerror = () => {
+          reject(request.error);
+        };
+      } catch (e) {
+        console.warn(`Object store ${resolvedCol} error:`, e);
+        resolve([]);
+      }
     });
   }
 
@@ -234,17 +274,24 @@ class LocalDatabase {
   async getDoc<T = any>(collectionName: CollectionName, id: string): Promise<T | null> {
     const resolvedCol = this.resolveCollection(collectionName as string);
     const db = await this.getDb();
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(resolvedCol, 'readonly');
-      const store = transaction.objectStore(resolvedCol);
-      const request = store.get(id);
+    if (!db.objectStoreNames.contains(resolvedCol)) return null;
 
-      request.onsuccess = () => {
-        resolve((request.result as T) || null);
-      };
-      request.onerror = () => {
-        reject(request.error);
-      };
+    return new Promise((resolve, reject) => {
+      try {
+        const transaction = db.transaction(resolvedCol, 'readonly');
+        const store = transaction.objectStore(resolvedCol);
+        const request = store.get(id);
+
+        request.onsuccess = () => {
+          resolve((request.result as T) || null);
+        };
+        request.onerror = () => {
+          reject(request.error);
+        };
+      } catch (e) {
+        console.warn(`Object store ${resolvedCol} error:`, e);
+        resolve(null);
+      }
     });
   }
 
@@ -259,18 +306,28 @@ class LocalDatabase {
     const id = record.id || `local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     record.id = id;
 
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(resolvedCol, 'readwrite');
-      const store = transaction.objectStore(resolvedCol);
-      const request = store.put(record);
+    if (!db.objectStoreNames.contains(resolvedCol)) {
+      console.warn(`Object store ${resolvedCol} not found on disk, skipping local store put`);
+      return id;
+    }
 
-      request.onsuccess = () => {
-        this.notify();
+    return new Promise((resolve, reject) => {
+      try {
+        const transaction = db.transaction(resolvedCol, 'readwrite');
+        const store = transaction.objectStore(resolvedCol);
+        const request = store.put(record);
+
+        request.onsuccess = () => {
+          this.notify();
+          resolve(id);
+        };
+        request.onerror = () => {
+          reject(request.error);
+        };
+      } catch (e) {
+        console.warn(`Object store ${resolvedCol} put error:`, e);
         resolve(id);
-      };
-      request.onerror = () => {
-        reject(request.error);
-      };
+      }
     });
   }
 
@@ -278,25 +335,32 @@ class LocalDatabase {
   async updateDoc(collectionName: CollectionName, id: string, data: any): Promise<void> {
     const resolvedCol = this.resolveCollection(collectionName as string);
     const db = await this.getDb();
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(resolvedCol, 'readwrite');
-      const store = transaction.objectStore(resolvedCol);
-      const getReq = store.get(id);
+    if (!db.objectStoreNames.contains(resolvedCol)) return;
 
-      getReq.onsuccess = () => {
-        const existing = getReq.result || { id };
-        let updated = { ...existing, ...data, id };
-        if (resolvedCol === 'students') {
-          updated = normalizeStudent(updated);
-        }
-        const putReq = store.put(updated);
-        putReq.onsuccess = () => {
-          this.notify();
-          resolve();
+    return new Promise((resolve, reject) => {
+      try {
+        const transaction = db.transaction(resolvedCol, 'readwrite');
+        const store = transaction.objectStore(resolvedCol);
+        const getReq = store.get(id);
+
+        getReq.onsuccess = () => {
+          const existing = getReq.result || { id };
+          let updated = { ...existing, ...data, id };
+          if (resolvedCol === 'students') {
+            updated = normalizeStudent(updated);
+          }
+          const putReq = store.put(updated);
+          putReq.onsuccess = () => {
+            this.notify();
+            resolve();
+          };
+          putReq.onerror = () => reject(putReq.error);
         };
-        putReq.onerror = () => reject(putReq.error);
-      };
-      getReq.onerror = () => reject(getReq.error);
+        getReq.onerror = () => reject(getReq.error);
+      } catch (e) {
+        console.warn(`Object store ${resolvedCol} update error:`, e);
+        resolve();
+      }
     });
   }
 
@@ -304,18 +368,25 @@ class LocalDatabase {
   async deleteDoc(collectionName: CollectionName, id: string): Promise<void> {
     const resolvedCol = this.resolveCollection(collectionName as string);
     const db = await this.getDb();
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(resolvedCol, 'readwrite');
-      const store = transaction.objectStore(resolvedCol);
-      const request = store.delete(id);
+    if (!db.objectStoreNames.contains(resolvedCol)) return;
 
-      request.onsuccess = () => {
-        this.notify();
+    return new Promise((resolve, reject) => {
+      try {
+        const transaction = db.transaction(resolvedCol, 'readwrite');
+        const store = transaction.objectStore(resolvedCol);
+        const request = store.delete(id);
+
+        request.onsuccess = () => {
+          this.notify();
+          resolve();
+        };
+        request.onerror = () => {
+          reject(request.error);
+        };
+      } catch (e) {
+        console.warn(`Object store ${resolvedCol} delete error:`, e);
         resolve();
-      };
-      request.onerror = () => {
-        reject(request.error);
-      };
+      }
     });
   }
 
@@ -323,18 +394,25 @@ class LocalDatabase {
   async clearCollection(collectionName: CollectionName): Promise<void> {
     const resolvedCol = this.resolveCollection(collectionName as string);
     const db = await this.getDb();
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(resolvedCol, 'readwrite');
-      const store = transaction.objectStore(resolvedCol);
-      const request = store.clear();
+    if (!db.objectStoreNames.contains(resolvedCol)) return;
 
-      request.onsuccess = () => {
-        this.notify();
+    return new Promise((resolve, reject) => {
+      try {
+        const transaction = db.transaction(resolvedCol, 'readwrite');
+        const store = transaction.objectStore(resolvedCol);
+        const request = store.clear();
+
+        request.onsuccess = () => {
+          this.notify();
+          resolve();
+        };
+        request.onerror = () => {
+          reject(request.error);
+        };
+      } catch (e) {
+        console.warn(`Object store ${resolvedCol} clear error:`, e);
         resolve();
-      };
-      request.onerror = () => {
-        reject(request.error);
-      };
+      }
     });
   }
 
@@ -935,6 +1013,322 @@ class LocalDatabase {
     };
   }
 
+  // Scan database to find duplicate students based on nationalId
+  async scanDuplicateStudents(): Promise<DuplicateGroup[]> {
+    const allStudents = await this.getDocs<any>('students');
+    const [
+      enrollments,
+      research,
+      conversations,
+      attendance,
+      studyStats,
+      studyLogs,
+      todos,
+      comments,
+      oralExams
+    ] = await Promise.all([
+      this.getDocs('enrollments'),
+      this.getDocs('research'),
+      this.getDocs('conversation_archives'),
+      this.getDocs('attendance'),
+      this.getDocs('study_stats'),
+      this.getDocs('periodic_study_logs'),
+      this.getDocs('todos'),
+      this.getDocs('student_comments'),
+      this.getDocs('oral_exams')
+    ]);
+
+    // Group by normalized nationalId
+    const groupsMap = new Map<string, any[]>();
+    for (const s of allStudents) {
+      const normNId = normalizeNationalId(s.nationalId);
+      if (!normNId || normNId.length < 3) continue; // Only consider valid non-empty national IDs
+      if (!groupsMap.has(normNId)) {
+        groupsMap.set(normNId, []);
+      }
+      groupsMap.get(normNId)!.push(s);
+    }
+
+    const duplicateGroups: DuplicateGroup[] = [];
+    for (const [nationalId, list] of groupsMap.entries()) {
+      if (list.length > 1) {
+        // Score each candidate to pick the best primary record
+        const scored = list.map((s) => {
+          let score = 0;
+          if (s.photoUrl && s.photoUrl.length > 50) score += 50;
+          if (s.name && s.name.trim() !== 'نامشخص') score += 10;
+          if (s.phoneNumber) score += 5;
+          if (s.grade) score += 5;
+          if (s.fatherOccupation) score += 2;
+          if (s.birthDate) score += 2;
+          if (s.classicEducation) score += 2;
+          if (s.levelOneSchool) score += 2;
+          if (isStudentActive(s)) score += 10;
+
+          const relCount =
+            enrollments.filter((e: any) => e.studentId === s.id).length +
+            research.filter((r: any) => r.studentId === s.id || (r.teamMemberIds && r.teamMemberIds.includes(s.id))).length +
+            conversations.filter((c: any) => c.studentId === s.id).length +
+            attendance.filter((a: any) => a.studentId === s.id).length +
+            studyStats.filter((st: any) => st.studentId === s.id).length +
+            studyLogs.filter((sl: any) => sl.studentId === s.id).length +
+            todos.filter((t: any) => t.studentId === s.id).length +
+            comments.filter((cm: any) => cm.studentId === s.id).length +
+            oralExams.filter((ox: any) => ox.studentId === s.id).length;
+
+          score += relCount * 5;
+
+          return { student: s, score, relCount };
+        });
+
+        scored.sort((a, b) => b.score - a.score);
+        const primaryCandidateId = scored[0].student.id;
+        const totalRelatedRecords = scored.reduce((acc, curr) => acc + curr.relCount, 0);
+
+        duplicateGroups.push({
+          nationalId,
+          students: list,
+          primaryCandidateId,
+          totalRelatedRecords
+        });
+      }
+    }
+
+    return duplicateGroups;
+  }
+
+  // Merges all duplicate students into a primary record and re-assigns all related data before deleting duplicate records
+  async mergeAndDeduplicateStudents(): Promise<MergeResult> {
+    const groups = await this.scanDuplicateStudents();
+    if (groups.length === 0) {
+      return {
+        success: true,
+        duplicateGroupsCount: 0,
+        mergedStudentsCount: 0,
+        updatedRelatedRecordsCount: 0,
+        message: 'هیچ کاربر تکراری با کد ملی مشابه در سامانه یافت نشد. کلیه پرونده‌ها یکتا هستند.',
+        details: []
+      };
+    }
+
+    const [
+      enrollments,
+      research,
+      conversations,
+      attendance,
+      studyStats,
+      studyLogs,
+      todos,
+      comments,
+      oralExams
+    ] = await Promise.all([
+      this.getDocs('enrollments'),
+      this.getDocs('research'),
+      this.getDocs('conversation_archives'),
+      this.getDocs('attendance'),
+      this.getDocs('study_stats'),
+      this.getDocs('periodic_study_logs'),
+      this.getDocs('todos'),
+      this.getDocs('student_comments'),
+      this.getDocs('oral_exams')
+    ]);
+
+    let totalMergedCount = 0;
+    let totalRelatedUpdated = 0;
+    const details: MergeResult['details'] = [];
+
+    for (const grp of groups) {
+      const primary = grp.students.find((s) => s.id === grp.primaryCandidateId) || grp.students[0];
+      const secondaries = grp.students.filter((s) => s.id !== primary.id);
+      const secondaryIds = new Set(secondaries.map((s) => s.id));
+
+      // 1. Merge Profile Data into Primary Record so that NO profile fields are lost
+      const mergedStudent: any = { ...primary };
+
+      for (const sec of secondaries) {
+        if (!mergedStudent.photoUrl && sec.photoUrl) mergedStudent.photoUrl = sec.photoUrl;
+        if ((!mergedStudent.name || mergedStudent.name === 'نامشخص') && sec.name) mergedStudent.name = sec.name;
+        else if (sec.name && sec.name.length > (mergedStudent.name?.length || 0)) mergedStudent.name = sec.name;
+
+        if (!mergedStudent.phoneNumber && sec.phoneNumber) mergedStudent.phoneNumber = sec.phoneNumber;
+        if (!mergedStudent.grade && sec.grade) mergedStudent.grade = sec.grade;
+        if (!mergedStudent.fatherOccupation && sec.fatherOccupation) mergedStudent.fatherOccupation = sec.fatherOccupation;
+        if (!mergedStudent.birthPlace && sec.birthPlace) mergedStudent.birthPlace = sec.birthPlace;
+        if (!mergedStudent.birthDate && sec.birthDate) mergedStudent.birthDate = sec.birthDate;
+        if ((!mergedStudent.maritalStatus || mergedStudent.maritalStatus === 'مجرد') && sec.maritalStatus === 'متاهل') {
+          mergedStudent.maritalStatus = 'متاهل';
+        }
+        if ((sec.childrenCount || 0) > (mergedStudent.childrenCount || 0)) {
+          mergedStudent.childrenCount = sec.childrenCount;
+        }
+        if ((!mergedStudent.livingStatus || mergedStudent.livingStatus === 'پدری') && sec.livingStatus && sec.livingStatus !== 'پدری') {
+          mergedStudent.livingStatus = sec.livingStatus;
+        }
+        if (!mergedStudent.livingStatusOther && sec.livingStatusOther) mergedStudent.livingStatusOther = sec.livingStatusOther;
+        if (!mergedStudent.classicEducation && sec.classicEducation) mergedStudent.classicEducation = sec.classicEducation;
+        if (!mergedStudent.howzaEntryYear && sec.howzaEntryYear) mergedStudent.howzaEntryYear = sec.howzaEntryYear;
+        if (!mergedStudent.levelOneSchool && sec.levelOneSchool) mergedStudent.levelOneSchool = sec.levelOneSchool;
+        if ((!mergedStudent.tammomStatus || mergedStudent.tammomStatus === 'غیر معمم') && sec.tammomStatus === 'معمم') {
+          mergedStudent.tammomStatus = 'معمم';
+        }
+        if (isStudentActive(sec) || isStudentActive(mergedStudent)) {
+          mergedStudent.isActive = true;
+        }
+        if (sec.createdAt && mergedStudent.createdAt && new Date(sec.createdAt) < new Date(mergedStudent.createdAt)) {
+          mergedStudent.createdAt = sec.createdAt;
+        }
+      }
+
+      // Save updated merged primary student
+      await this.updateDoc('students', primary.id, mergedStudent);
+
+      // 2. Re-assign and merge all related records across every collection in the software
+
+      // A. Enrollments
+      const primaryEnrollmentProgramIds = new Set(
+        enrollments.filter((e: any) => e.studentId === primary.id).map((e: any) => e.programId)
+      );
+      for (const e of enrollments) {
+        if (secondaryIds.has(e.studentId)) {
+          if (primaryEnrollmentProgramIds.has(e.programId)) {
+            // Already enrolled, delete duplicate enrollment
+            await this.deleteDoc('enrollments', e.id);
+          } else {
+            await this.updateDoc('enrollments', e.id, { studentId: primary.id });
+            primaryEnrollmentProgramIds.add(e.programId);
+            totalRelatedUpdated++;
+          }
+        }
+      }
+
+      // B. Research & Research Records
+      for (const r of research) {
+        let changed = false;
+        const updates: any = {};
+        if (secondaryIds.has(r.studentId)) {
+          updates.studentId = primary.id;
+          changed = true;
+        }
+        if (Array.isArray(r.teamMemberIds)) {
+          const newTeamIds = Array.from(new Set(r.teamMemberIds.map((mId: string) => secondaryIds.has(mId) ? primary.id : mId)));
+          if (JSON.stringify(newTeamIds) !== JSON.stringify(r.teamMemberIds)) {
+            updates.teamMemberIds = newTeamIds;
+            changed = true;
+          }
+        }
+        if (changed) {
+          await this.updateDoc('research', r.id, updates);
+          totalRelatedUpdated++;
+        }
+      }
+
+      // C. Conversation Archives
+      for (const c of conversations) {
+        if (secondaryIds.has(c.studentId)) {
+          await this.updateDoc('conversation_archives', c.id, { studentId: primary.id });
+          totalRelatedUpdated++;
+        }
+      }
+
+      // D. Attendance
+      const primaryAttendanceDates = new Set(
+        attendance.filter((a: any) => a.studentId === primary.id).map((a: any) => a.date)
+      );
+      for (const a of attendance) {
+        if (secondaryIds.has(a.studentId)) {
+          if (primaryAttendanceDates.has(a.date)) {
+            // Duplicate date attendance, remove duplicate
+            await this.deleteDoc('attendance', a.id);
+          } else {
+            await this.updateDoc('attendance', a.id, { studentId: primary.id });
+            primaryAttendanceDates.add(a.date);
+            totalRelatedUpdated++;
+          }
+        }
+      }
+
+      // E. Study Stats
+      const primaryStudyStatDates = new Set(
+        studyStats.filter((st: any) => st.studentId === primary.id).map((st: any) => st.date)
+      );
+      for (const st of studyStats) {
+        if (secondaryIds.has(st.studentId)) {
+          if (primaryStudyStatDates.has(st.date)) {
+            await this.deleteDoc('study_stats', st.id);
+          } else {
+            await this.updateDoc('study_stats', st.id, { studentId: primary.id });
+            primaryStudyStatDates.add(st.date);
+            totalRelatedUpdated++;
+          }
+        }
+      }
+
+      // F. Periodic Study Logs
+      const primaryPeriodLogs = new Set(
+        studyLogs.filter((sl: any) => sl.studentId === primary.id).map((sl: any) => sl.periodId)
+      );
+      for (const sl of studyLogs) {
+        if (secondaryIds.has(sl.studentId)) {
+          if (primaryPeriodLogs.has(sl.periodId)) {
+            await this.deleteDoc('periodic_study_logs', sl.id);
+          } else {
+            await this.updateDoc('periodic_study_logs', sl.id, { studentId: primary.id });
+            primaryPeriodLogs.add(sl.periodId);
+            totalRelatedUpdated++;
+          }
+        }
+      }
+
+      // G. Todos
+      for (const t of todos) {
+        if (t.studentId && secondaryIds.has(t.studentId)) {
+          await this.updateDoc('todos', t.id, { studentId: primary.id });
+          totalRelatedUpdated++;
+        }
+      }
+
+      // H. Student Comments
+      for (const cm of comments) {
+        if (secondaryIds.has(cm.studentId)) {
+          await this.updateDoc('student_comments', cm.id, { studentId: primary.id });
+          totalRelatedUpdated++;
+        }
+      }
+
+      // I. Oral Exams
+      for (const ox of oralExams) {
+        if (secondaryIds.has(ox.studentId)) {
+          await this.updateDoc('oral_exams', ox.id, { studentId: primary.id });
+          totalRelatedUpdated++;
+        }
+      }
+
+      // 3. Delete secondary duplicate students safely after all data has been merged
+      for (const sec of secondaries) {
+        await this.deleteDoc('students', sec.id);
+        totalMergedCount++;
+      }
+
+      details.push({
+        nationalId: grp.nationalId,
+        primaryStudentName: mergedStudent.name,
+        mergedNames: grp.students.map((s) => s.name),
+        removedCount: secondaries.length
+      });
+    }
+
+    this.notify();
+
+    return {
+      success: true,
+      duplicateGroupsCount: groups.length,
+      mergedStudentsCount: totalMergedCount,
+      updatedRelatedRecordsCount: totalRelatedUpdated,
+      message: `فرآیند ادغام با موفقیت انجام شد: تعداد ${totalMergedCount} پرونده تکراری شناسایی و ادغام شد و تمامی سوابق تحصیلی، پژوهشی و نمرات (${totalRelatedUpdated} رکورد) به پرونده اصلی منتقل گردید.`,
+      details
+    };
+  }
+
   // Get statistics on database size and photos
   async getStorageStats(): Promise<{
     totalStudents: number;
@@ -976,14 +1370,16 @@ class LocalDatabase {
 
   // Seed default data if database is empty
   private async checkAndSeedDefaultData(db: IDBDatabase) {
-    const transaction = db.transaction('students', 'readonly');
-    const store = transaction.objectStore('students');
-    const countReq = store.count();
+    try {
+      if (!db.objectStoreNames.contains('students')) return;
+      const transaction = db.transaction('students', 'readonly');
+      const store = transaction.objectStore('students');
+      const countReq = store.count();
 
-    countReq.onsuccess = async () => {
-      if (countReq.result === 0) {
-        console.log('Local Database is empty. Seeding initial baseline data...');
-        const initialStudents = [
+      countReq.onsuccess = async () => {
+        if (countReq.result === 0) {
+          console.log('Local Database is empty. Seeding initial baseline data...');
+          const initialStudents = [
           {
             id: 'stu_1',
             name: 'محمد رضایی',
@@ -1124,6 +1520,9 @@ class LocalDatabase {
         ]);
       }
     };
+    } catch (e) {
+      console.warn('Seed data check error:', e);
+    }
   }
 }
 

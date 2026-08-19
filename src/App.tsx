@@ -12,6 +12,7 @@ import AttendanceAndStats from './components/AttendanceAndStats';
 import StudyStats from './components/StudyStats';
 import Summary from './components/Summary';
 import BackupAndRestore from './components/BackupAndRestore';
+import ManagerFiles from './components/ManagerFiles';
 import TodoList from './components/TodoList';
 import StudentComments from './components/StudentComments';
 import MentorSelectorModal from './components/MentorSelectorModal';
@@ -69,6 +70,8 @@ function AppContent() {
         return <Summary onNavigate={handleNavigate} initialStudentId={selectedStudentIdForTab} />;
       case 'backup':
         return <BackupAndRestore />;
+      case 'manager-files':
+        return <ManagerFiles />;
       default:
         return <TodoList />;
     }
@@ -114,6 +117,7 @@ function AppContent() {
                   {activeTab === 'todos' ? 'پیگیری‌ها' :
                    activeTab === 'students' ? 'مدیریت کل کاربران (مشترک)' :
                    activeTab === 'active-students' ? 'لیست کاربران فعال' :
+                   activeTab === 'manager-files' ? (currentMentor.isHeadManager ? 'ارسال فایل برای کاربران' : 'فایل‌های ارسالی مدیر') :
                    activeTab === 'programs' ? 'برنامه‌های آموزشی' :
                    activeTab === 'research' ? 'بخش پژوهش و مقالات' :
                    activeTab === 'attendance' ? 'حضور و غیاب' :

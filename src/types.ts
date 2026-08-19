@@ -109,6 +109,8 @@ export interface PeriodicStudyLog {
   periodId: string;
   studentId: string;
   hours: number;
+  studyHours?: number;
+  discussionHours?: number;
 }
 
 export type CommentPriority = 'high' | 'medium' | 'low' | 'info';

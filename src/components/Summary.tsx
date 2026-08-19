@@ -32,7 +32,15 @@ import {
   Download,
   Upload,
   FileText,
-  Printer
+  Printer,
+  Calculator,
+  FileSpreadsheet,
+  Award,
+  CalendarCheck,
+  Percent,
+  ArrowUpRight,
+  ArrowDownRight,
+  XCircle
 } from 'lucide-react';
 import { localDb } from '../lib/localDb';
 import { 
@@ -49,6 +57,8 @@ import {
 } from '../types';
 import { useMentor } from '../context/MentorContext';
 import { sendChatMessage } from '../lib/geminiService';
+import { getLogMetrics, calculatePeriodAverages } from './study/studyUtils';
+import { exportElementToPdf } from '../lib/pdfExport';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -65,7 +75,7 @@ interface SummaryProps {
 }
 
 export default function Summary({ onNavigate, initialStudentId }: SummaryProps = {}) {
-  const { filterStudents, currentMentorId, shahpooriFilter } = useMentor();
+  const { filterStudents, currentMentorId, currentMentor, shahpooriFilter } = useMentor();
   const [students, setStudents] = useState<Student[]>([]);
   const [selectedStudentId, setSelectedStudentId] = useState<string>(initialStudentId || '');
   const [searchFilter, setSearchFilter] = useState('');
@@ -83,6 +93,8 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
   const [studentDetails, setStudentDetails] = useState<{
     info: Student;
     periodicLogs: PeriodicStudyLog[];
+    allPeriodicLogs: PeriodicStudyLog[];
+    allStudents: Student[];
     studyPeriods: StudyPeriod[];
     studyStats: StudyStat[];
     overallStudyAvg: number;
@@ -115,9 +127,12 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
         list.sort((a, b) => a.name.localeCompare(b.name, 'fa'));
         setStudents(list);
 
-        if (initialStudentId && !selectedStudentId) {
-          setSelectedStudentId(initialStudentId);
-          fetchStudentFullDataWithStudents(initialStudentId, list);
+        const targetId = selectedStudentId || initialStudentId;
+        if (targetId) {
+          if (!selectedStudentId && initialStudentId) {
+            setSelectedStudentId(initialStudentId);
+          }
+          fetchStudentFullDataWithStudents(targetId, list);
         }
       } catch (err) {
         console.error("Error fetching students:", err);
@@ -128,7 +143,7 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
       fetchStudents();
     });
     return () => unsub();
-  }, [currentMentorId, shahpooriFilter]);
+  }, [currentMentorId, currentMentor.id, shahpooriFilter, selectedStudentId]);
 
   // Full App Export Function
   const handleExportFullData = async () => {
@@ -195,33 +210,26 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
     setShowPdfConfirmModal(false);
     setIsExportingPDF(true);
 
-    setTimeout(() => {
+    setTimeout(async () => {
       if (!pdfReportRef.current || !studentDetails) {
         setIsExportingPDF(false);
         return;
       }
 
-      const opt = {
-        margin: 8,
-        filename: `گزارش_جامع_${studentDetails.info.name.replace(/\s+/g, '_')}_${new Date().toLocaleDateString('fa-IR').replace(/\//g, '-')}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, letterRendering: true },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-      };
-
-      // @ts-ignore
-      import('html2pdf.js').then((html2pdfModule) => {
-        const html2pdf = html2pdfModule.default || html2pdfModule;
-        (html2pdf as any)().set(opt).from(pdfReportRef.current).save().then(() => {
-          setIsExportingPDF(false);
-        }).catch((err: any) => {
-          console.error("PDF export error:", err);
-          setIsExportingPDF(false);
+      try {
+        const fileName = `گزارش_جامع_${studentDetails.info.name.replace(/\s+/g, '_')}_${new Date().toLocaleDateString('fa-IR').replace(/\//g, '-')}.pdf`;
+        await exportElementToPdf({
+          element: pdfReportRef.current,
+          filename: fileName,
+          orientation: 'portrait',
+          marginMM: 0
         });
-      }).catch((err: any) => {
-        console.error("html2pdf import error:", err);
+      } catch (err: any) {
+        console.error("PDF export error:", err);
+        alert("خطا در دانلود فایل PDF: " + (err?.message || "مشکلی پیش آمد"));
+      } finally {
         setIsExportingPDF(false);
-      });
+      }
     }, 300);
   };
 
@@ -245,8 +253,8 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
       if (!student) return;
 
       const [
-        allPeriodicLogs,
-        studyPeriods,
+        allPeriodicLogsRaw,
+        studyPeriodsRaw,
         allStudyStats,
         allComments,
         allOralExams,
@@ -264,6 +272,23 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
         localDb.getDocs<Program>('programs')
       ]);
 
+      // Filter study periods to match active periods in Study Statistics
+      const studyPeriods = studyPeriodsRaw
+        .filter(p => {
+          if (currentMentorId === 'shahpoori') {
+            if (shahpooriFilter === 'all') return true;
+            return p.mentorId === shahpooriFilter;
+          }
+          if (p.mentorId) {
+            return p.mentorId === currentMentorId;
+          }
+          return (p.mentorId || '1') === currentMentor.id;
+        })
+        .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
+
+      // Only include logs for existing, non-deleted periods
+      const validPeriodIds = new Set(studyPeriods.map(p => p.id));
+      const allPeriodicLogs = allPeriodicLogsRaw.filter(l => validPeriodIds.has(l.periodId));
       const periodicLogs = allPeriodicLogs.filter(l => l.studentId === studentId);
       const studyStats = allStudyStats.filter(s => s.studentId === studentId);
 
@@ -295,6 +320,8 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
       setStudentDetails({
         info: student,
         periodicLogs,
+        allPeriodicLogs,
+        allStudents: studentList,
         studyPeriods,
         studyStats,
         overallStudyAvg,
@@ -378,6 +405,134 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
     };
   };
 
+  // Calculate detailed study breakout and 9 KPI summary items
+  const getDetailedStudyBreakout = () => {
+    if (!studentDetails) {
+      return {
+        rows: [],
+        sumStudyAll: 0,
+        sumDiscAll: 0,
+        sumTotalAll: 0,
+        sumMandatoryAll: 0,
+        sumGradeAvgAll: 0,
+        participatedCount: 0,
+        commitmentRate: 0,
+        gradeCommitmentRate: 0,
+        aboveMandatoryCount: 0,
+        belowMandatoryCount: 0,
+        aboveAvgCount: 0,
+        belowAvgCount: 0,
+        totalPeriodsCount: 0,
+      };
+    }
+
+    const { info, periodicLogs, allPeriodicLogs, allStudents, studyPeriods } = studentDetails;
+    let sumStudyAll = 0;
+    let sumDiscAll = 0;
+    let sumTotalAll = 0;
+    let participatedCount = 0;
+    let aboveAvgCount = 0;
+    let belowAvgCount = 0;
+    let aboveMandatoryCount = 0;
+    let belowMandatoryCount = 0;
+
+    const rows = studyPeriods.map((p, idx) => {
+      const log = periodicLogs.find(l => l.periodId === p.id);
+      const metrics = getLogMetrics(log);
+      const mandatoryMin = Math.round((p.mandatoryHours || 0) * 60);
+
+      const gradeStudents = (allStudents || []).filter(s => s.grade === info.grade);
+      const gradeAvg = calculatePeriodAverages(p.id, allPeriodicLogs || [], gradeStudents.map(s => s.id));
+      const overallAvg = calculatePeriodAverages(p.id, allPeriodicLogs || []);
+
+      const avgTotMin = gradeAvg.activeCount > 0 ? gradeAvg.totalAvgMinutes : overallAvg.totalAvgMinutes;
+      const avgStudyMin = gradeAvg.activeCount > 0 ? gradeAvg.studyAvgMinutes : overallAvg.studyAvgMinutes;
+      const avgDiscMin = gradeAvg.activeCount > 0 ? gradeAvg.discussionAvgMinutes : overallAvg.discussionAvgMinutes;
+
+      const diffMandatory = metrics.totalMinutes - mandatoryMin;
+      const diffTotalAvg = metrics.totalMinutes - avgTotMin;
+      const perfRatio = mandatoryMin > 0 ? (metrics.totalMinutes / mandatoryMin) * 100 : 0;
+
+      const hasEntry = metrics.totalMinutes > 0;
+      if (hasEntry) {
+        participatedCount++;
+        sumStudyAll += metrics.studyMinutes;
+        sumDiscAll += metrics.discussionMinutes;
+        sumTotalAll += metrics.totalMinutes;
+
+        if (metrics.totalMinutes >= avgTotMin && avgTotMin > 0) {
+          aboveAvgCount++;
+        } else {
+          belowAvgCount++;
+        }
+
+        if (mandatoryMin > 0) {
+          if (metrics.totalMinutes >= mandatoryMin) {
+            aboveMandatoryCount++;
+          } else {
+            belowMandatoryCount++;
+          }
+        }
+      } else {
+        if (mandatoryMin > 0) {
+          belowMandatoryCount++;
+        }
+        if (avgTotMin > 0) {
+          belowAvgCount++;
+        }
+      }
+
+      return {
+        index: idx + 1,
+        period: p,
+        metrics,
+        mandatoryMin,
+        avgTotMin,
+        avgStudyMin,
+        avgDiscMin,
+        diffMandatory,
+        diffTotalAvg,
+        perfRatio,
+        hasEntry,
+        statusMandatory: metrics.totalMinutes >= mandatoryMin && mandatoryMin > 0 ? 'موفق موظفی' : metrics.totalMinutes === 0 ? 'ثبت نشده' : 'کسری موظفی',
+        statusAvg: metrics.totalMinutes >= avgTotMin && avgTotMin > 0 ? 'بالای میانگین' : metrics.totalMinutes === 0 ? 'ثبت نشده' : 'زیر میانگین',
+      };
+    });
+
+    const sumMandatoryAll = rows.reduce((acc, r) => acc + r.mandatoryMin, 0);
+    const sumGradeAvgAll = rows.reduce((acc, r) => acc + r.avgTotMin, 0);
+
+    const gradeStudents = (allStudents || []).filter(s => s.grade === info.grade);
+    const totalPossibleGradeLogs = (gradeStudents.length || 1) * studyPeriods.length;
+    const activeGradeLogsCount = (allPeriodicLogs || []).filter(l => {
+      const isGradeStudent = gradeStudents.some(s => s.id === l.studentId);
+      const isPeriod = studyPeriods.some(p => p.id === l.periodId);
+      const m = getLogMetrics(l);
+      return isGradeStudent && isPeriod && m.totalMinutes > 0;
+    }).length;
+    const gradeCommitmentRate = totalPossibleGradeLogs > 0 ? Math.round((activeGradeLogsCount / totalPossibleGradeLogs) * 100) : 0;
+
+    const totalPeriodsCount = studyPeriods.length;
+    const commitmentRate = totalPeriodsCount > 0 ? Math.round((participatedCount / totalPeriodsCount) * 100) : 0;
+
+    return {
+      rows,
+      sumStudyAll,
+      sumDiscAll,
+      sumTotalAll,
+      sumMandatoryAll,
+      sumGradeAvgAll,
+      participatedCount,
+      commitmentRate,
+      gradeCommitmentRate,
+      aboveMandatoryCount,
+      belowMandatoryCount,
+      aboveAvgCount,
+      belowAvgCount,
+      totalPeriodsCount
+    };
+  };
+
   // Calculate comments & oral exam metrics
   const getCommentsMetrics = () => {
     if (!studentDetails) return { 
@@ -446,6 +601,7 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
 
       const studyMetrics = getStudyMetrics();
       const commMetrics = getCommentsMetrics();
+      const detailedBreakout = getDetailedStudyBreakout();
 
       const fullContext = {
         مشخصات_طلبه: {
@@ -476,6 +632,37 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
           میزان_تعهد_به_ثبت_مطالعه_درصد: `${studyMetrics.commitmentRate}%`,
           تعداد_دوره‌های_ثبت‌شده: studyMetrics.count
         },
+        شاخص_های_کلیدی_۹گانه_عملکرد: {
+          مجموع_مطالعه_کل_دقیقه: detailedBreakout.sumStudyAll,
+          مجموع_مطالعه_کل_ساعت: (detailedBreakout.sumStudyAll / 60).toFixed(1),
+          مجموع_مباحثه_کل_دقیقه: detailedBreakout.sumDiscAll,
+          مجموع_مباحثه_کل_ساعت: (detailedBreakout.sumDiscAll / 60).toFixed(1),
+          مجموع_کل_مطالعه_و_مباحثه_دقیقه: detailedBreakout.sumTotalAll,
+          مجموع_کل_مطالعه_و_مباحثه_ساعت: (detailedBreakout.sumTotalAll / 60).toFixed(1),
+          مجموع_کل_موظفی_دقیقه: detailedBreakout.sumMandatoryAll,
+          مجموع_کل_میانگین_پایه_دقیقه: detailedBreakout.sumGradeAvgAll,
+          مجموع_کل_میانگین_پایه_ساعت: (detailedBreakout.sumGradeAvgAll / 60).toFixed(1),
+          تعداد_دفعات_مشارکت: `${detailedBreakout.participatedCount} از ${detailedBreakout.totalPeriodsCount} دوره`,
+          درصد_تعهد_به_ثبت: `${detailedBreakout.commitmentRate}%`,
+          میانگین_پایه_در_تعهد_به_ثبت_درصد: `${detailedBreakout.gradeCommitmentRate}%`,
+          تعداد_دفعات_بالاتر_از_موظفی: `${detailedBreakout.aboveMandatoryCount} مرتبه`,
+          تعداد_دفعات_کمتر_از_موظفی: `${detailedBreakout.belowMandatoryCount} مرتبه`,
+          تعداد_دفعات_بالاتر_از_میانگین_پایه: `${detailedBreakout.aboveAvgCount} مرتبه`,
+          تعداد_دفعات_کمتر_از_میانگین_پایه: `${detailedBreakout.belowAvgCount} مرتبه`
+        },
+        ریز_عملکرد_تک_تک_دوره_ها: detailedBreakout.rows.map(r => ({
+          عنوان_دوره: r.period.title,
+          دقیقه_مطالعه: r.metrics.studyMinutes,
+          دقیقه_مباحثه: r.metrics.discussionMinutes,
+          مجموع_کل_دقیقه: r.metrics.totalMinutes,
+          موظفی_دوره_دقیقه: r.mandatoryMin,
+          میانگین_پایه_دقیقه: r.avgTotMin,
+          اختلاف_با_موظفی: r.diffMandatory,
+          اختلاف_با_میانگین_پایه: r.diffTotalAvg,
+          تراز_موظفی_درصد: `${r.perfRatio.toFixed(0)}%`,
+          وضعیت_موظفی: r.statusMandatory,
+          وضعیت_میانگین: r.statusAvg
+        })),
         نظرات_و_امتحانات_شفاهی: {
           تعداد_کل_نظرات: commMetrics.allCommentsCount,
           نکات_خودم_مدیریت: commMetrics.myComments.map(c => c.content),
@@ -1045,6 +1232,344 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
             </div>
 
           </div>
+
+          {/* Detailed Period-by-Period Breakout & 9 Key KPI Indicators */}
+          {(() => {
+            const breakout = getDetailedStudyBreakout();
+            return (
+              <div className="space-y-6">
+                {/* 9 KPI Bento Indicators Section */}
+                <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+                        <Award size={20} />
+                      </div>
+                      <div>
+                        <h6 className="text-base font-bold text-slate-800">
+                          جمع‌بندی و شاخص‌های کلیدی عملکرد {studentDetails.info.name}
+                        </h6>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          خلاصه شاخص‌های ۹گانه مطالعه، مباحثه، تعهد و تراز موظفی در تمام دوره‌های ثبت‌شده
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-3 py-1 bg-indigo-50 text-indigo-700 font-bold text-xs rounded-lg border border-indigo-100">
+                        {breakout.totalPeriodsCount.toLocaleString('fa-IR')} دوره آموزشی
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* 9 KPI Cards Grid */}
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 gap-3.5">
+                    {/* 1. Total Study */}
+                    <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-100 flex flex-col justify-between hover:bg-slate-50 transition-colors">
+                      <div className="flex items-center justify-between text-slate-500 mb-2">
+                        <span className="text-xs font-bold text-slate-600">مجموع مطالعه کل</span>
+                        <BookOpen size={16} className="text-blue-500" />
+                      </div>
+                      <div>
+                        <div className="text-xl font-bold text-slate-800">
+                          {breakout.sumStudyAll.toLocaleString('fa-IR')} <span className="text-xs font-normal text-slate-500">دقیقه</span>
+                        </div>
+                        <div className="text-[11px] text-slate-400 mt-0.5">
+                          معادل {Number((breakout.sumStudyAll / 60).toFixed(1)).toLocaleString('fa-IR')} ساعت
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 2. Total Discussion */}
+                    <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-100 flex flex-col justify-between hover:bg-slate-50 transition-colors">
+                      <div className="flex items-center justify-between text-slate-500 mb-2">
+                        <span className="text-xs font-bold text-slate-600">مجموع مباحثه کل</span>
+                        <MessageSquare size={16} className="text-amber-500" />
+                      </div>
+                      <div>
+                        <div className="text-xl font-bold text-slate-800">
+                          {breakout.sumDiscAll.toLocaleString('fa-IR')} <span className="text-xs font-normal text-slate-500">دقیقه</span>
+                        </div>
+                        <div className="text-[11px] text-slate-400 mt-0.5">
+                          معادل {Number((breakout.sumDiscAll / 60).toFixed(1)).toLocaleString('fa-IR')} ساعت
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 3. Combined Total */}
+                    <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 flex flex-col justify-between hover:bg-indigo-50/80 transition-colors">
+                      <div className="flex items-center justify-between text-indigo-700 mb-2">
+                        <span className="text-xs font-bold text-indigo-900">مجموع کل (مطالعه + مباحثه)</span>
+                        <Clock size={16} className="text-indigo-600" />
+                      </div>
+                      <div>
+                        <div className="text-xl font-bold text-indigo-950">
+                          {breakout.sumTotalAll.toLocaleString('fa-IR')} <span className="text-xs font-normal text-indigo-700">دقیقه</span>
+                        </div>
+                        <div className="text-[11px] text-indigo-600 mt-0.5">
+                          معادل {Number((breakout.sumTotalAll / 60).toFixed(1)).toLocaleString('fa-IR')} ساعت
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 4. Participation Count */}
+                    <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-100 flex flex-col justify-between hover:bg-slate-50 transition-colors">
+                      <div className="flex items-center justify-between text-slate-500 mb-2">
+                        <span className="text-xs font-bold text-slate-600">تعداد دفعات مشارکت</span>
+                        <CalendarCheck size={16} className="text-emerald-500" />
+                      </div>
+                      <div>
+                        <div className="text-xl font-bold text-slate-800">
+                          {breakout.participatedCount.toLocaleString('fa-IR')} <span className="text-xs font-normal text-slate-500">از {breakout.totalPeriodsCount.toLocaleString('fa-IR')} دوره</span>
+                        </div>
+                        <div className="text-[11px] text-slate-400 mt-0.5">
+                          دوره‌های دارای گزارش ثبت‌شده
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 5. Commitment % */}
+                    <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-100 flex flex-col justify-between hover:bg-slate-50 transition-colors">
+                      <div className="flex items-center justify-between text-slate-500 mb-2">
+                        <span className="text-xs font-bold text-slate-600">میزان تعهد به ثبت</span>
+                        <Percent size={16} className="text-purple-500" />
+                      </div>
+                      <div>
+                        <div className="text-xl font-bold text-slate-800">
+                          {breakout.commitmentRate.toLocaleString('fa-IR')}%
+                        </div>
+                        <div className="text-[11px] text-slate-400 mt-0.5">
+                          نسبت دوره‌های ثبت‌شده به کل
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 6. Above Mandatory */}
+                    <div className="bg-emerald-50/40 p-4 rounded-xl border border-emerald-100 flex flex-col justify-between hover:bg-emerald-50/70 transition-colors">
+                      <div className="flex items-center justify-between text-emerald-700 mb-2">
+                        <span className="text-xs font-bold text-emerald-900">تعداد دفعات بالاتر از موظفی</span>
+                        <ArrowUpRight size={16} className="text-emerald-600" />
+                      </div>
+                      <div>
+                        <div className="text-xl font-bold text-emerald-900">
+                          {breakout.aboveMandatoryCount.toLocaleString('fa-IR')} <span className="text-xs font-normal text-emerald-700">مرتبه</span>
+                        </div>
+                        <div className="text-[11px] text-emerald-600 mt-0.5">
+                          عملکرد منطبق بر الزام یا بالاتر
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 7. Below Mandatory */}
+                    <div className="bg-rose-50/40 p-4 rounded-xl border border-rose-100 flex flex-col justify-between hover:bg-rose-50/70 transition-colors">
+                      <div className="flex items-center justify-between text-rose-700 mb-2">
+                        <span className="text-xs font-bold text-rose-900">تعداد دفعات کمتر از موظفی</span>
+                        <ArrowDownRight size={16} className="text-rose-600" />
+                      </div>
+                      <div>
+                        <div className="text-xl font-bold text-rose-900">
+                          {breakout.belowMandatoryCount.toLocaleString('fa-IR')} <span className="text-xs font-normal text-rose-700">مرتبه</span>
+                        </div>
+                        <div className="text-[11px] text-rose-600 mt-0.5">
+                          دارای کسری ساعت نسبت به موظفی
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 8. Above Grade Avg */}
+                    <div className="bg-sky-50/40 p-4 rounded-xl border border-sky-100 flex flex-col justify-between hover:bg-sky-50/70 transition-colors">
+                      <div className="flex items-center justify-between text-sky-700 mb-2">
+                        <span className="text-xs font-bold text-sky-900">تعداد دفعات بالاتر از میانگین پایه</span>
+                        <TrendingUp size={16} className="text-sky-600" />
+                      </div>
+                      <div>
+                        <div className="text-xl font-bold text-sky-900">
+                          {breakout.aboveAvgCount.toLocaleString('fa-IR')} <span className="text-xs font-normal text-sky-700">مرتبه</span>
+                        </div>
+                        <div className="text-[11px] text-sky-600 mt-0.5">
+                          بالاتر از معدل پایه‌ی تحصیلی
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 9. Below Grade Avg */}
+                    <div className="bg-amber-50/40 p-4 rounded-xl border border-amber-100 flex flex-col justify-between hover:bg-amber-50/70 transition-colors">
+                      <div className="flex items-center justify-between text-amber-700 mb-2">
+                        <span className="text-xs font-bold text-amber-900">تعداد دفعات کمتر از میانگین پایه</span>
+                        <TrendingDown size={16} className="text-amber-600" />
+                      </div>
+                      <div>
+                        <div className="text-xl font-bold text-amber-900">
+                          {breakout.belowAvgCount.toLocaleString('fa-IR')} <span className="text-xs font-normal text-amber-700">مرتبه</span>
+                        </div>
+                        <div className="text-[11px] text-amber-600 mt-0.5">
+                          پایین‌تر از معدل پایه‌ی تحصیلی
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Period-by-Period Breakout Table Section */}
+                <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+                        <FileSpreadsheet size={20} />
+                      </div>
+                      <div>
+                        <h5 className="text-base font-bold text-slate-800">
+                          جدول ریز عملکرد دوره‌ای {studentDetails.info.name} (تفکیک مطالعه، مباحثه، موظفی و میانگین)
+                        </h5>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          نمایش جزئیات نمرات، ساعات، تراز موظفی و مقایسه با میانگین کل پایه در تک‌تک دوره‌ها
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Table */}
+                  <div className="overflow-x-auto rounded-xl border border-slate-200">
+                    <table className="w-full text-right text-xs">
+                      <thead>
+                        <tr className="bg-slate-100/80 text-slate-700 font-bold border-b border-slate-200 whitespace-nowrap">
+                          <th className="py-3 px-3 w-10 text-center">#</th>
+                          <th className="py-3 px-4">عنوان دوره</th>
+                          <th className="py-3 px-3 text-center">بازه زمانی</th>
+                          <th className="py-3 px-3 text-center">دقیقه مطالعه</th>
+                          <th className="py-3 px-3 text-center">دقیقه مباحثه</th>
+                          <th className="py-3 px-3 text-center font-extrabold text-indigo-900 bg-indigo-50/50">مجموع کل</th>
+                          <th className="py-3 px-3 text-center">دقیقه موظفی</th>
+                          <th className="py-3 px-3 text-center">میانگین کل پایه</th>
+                          <th className="py-3 px-3 text-center">اختلاف با موظفی</th>
+                          <th className="py-3 px-3 text-center">اختلاف با میانگین</th>
+                          <th className="py-3 px-3 text-center">تراز موظفی (%)</th>
+                          <th className="py-3 px-3 text-center">وضعیت موظفی</th>
+                          <th className="py-3 px-3 text-center">وضعیت میانگین</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {breakout.rows.length > 0 ? (
+                          breakout.rows.map((row) => (
+                            <tr key={row.period.id} className="hover:bg-slate-50/60 transition-colors whitespace-nowrap">
+                              <td className="py-3 px-3 text-center font-bold text-slate-400">{row.index}</td>
+                              <td className="py-3 px-4 font-bold text-slate-800">{row.period.title}</td>
+                              <td className="py-3 px-3 text-center text-slate-500 text-[11px] dir-ltr">
+                                {formatShamsi(row.period.startDate)} تا {formatShamsi(row.period.endDate)}
+                              </td>
+                              <td className="py-3 px-3 text-center font-medium text-slate-700">
+                                {row.metrics.studyMinutes > 0 ? `${row.metrics.studyMinutes.toLocaleString('fa-IR')} د` : '---'}
+                              </td>
+                              <td className="py-3 px-3 text-center font-medium text-slate-700">
+                                {row.metrics.discussionMinutes > 0 ? `${row.metrics.discussionMinutes.toLocaleString('fa-IR')} د` : '---'}
+                              </td>
+                              <td className="py-3 px-3 text-center font-bold text-indigo-700 bg-indigo-50/30">
+                                {row.metrics.totalMinutes > 0 ? `${row.metrics.totalMinutes.toLocaleString('fa-IR')} د` : '۰'}
+                              </td>
+                              <td className="py-3 px-3 text-center text-slate-600 font-medium">
+                                {row.mandatoryMin > 0 ? `${row.mandatoryMin.toLocaleString('fa-IR')} د` : '---'}
+                              </td>
+                              <td className="py-3 px-3 text-center text-slate-600 font-medium">
+                                {row.avgTotMin > 0 ? `${row.avgTotMin.toLocaleString('fa-IR')} د` : '---'}
+                              </td>
+                              <td className="py-3 px-3 text-center font-bold">
+                                {row.mandatoryMin > 0 ? (
+                                  <span className={cn(
+                                    "px-2 py-0.5 rounded text-[11px]",
+                                    row.diffMandatory >= 0 ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
+                                  )}>
+                                    {row.diffMandatory >= 0 ? `+${row.diffMandatory.toLocaleString('fa-IR')}` : row.diffMandatory.toLocaleString('fa-IR')} د
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400">---</span>
+                                )}
+                              </td>
+                              <td className="py-3 px-3 text-center font-bold">
+                                {row.avgTotMin > 0 ? (
+                                  <span className={cn(
+                                    "px-2 py-0.5 rounded text-[11px]",
+                                    row.diffTotalAvg >= 0 ? "bg-sky-50 text-sky-700" : "bg-amber-50 text-amber-700"
+                                  )}>
+                                    {row.diffTotalAvg >= 0 ? `+${row.diffTotalAvg.toLocaleString('fa-IR')}` : row.diffTotalAvg.toLocaleString('fa-IR')} د
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400">---</span>
+                                )}
+                              </td>
+                              <td className="py-3 px-3 text-center font-bold">
+                                {row.mandatoryMin > 0 ? (
+                                  <span className={cn(
+                                    "text-[11px]",
+                                    row.perfRatio >= 100 ? "text-emerald-700 font-extrabold" : "text-rose-700"
+                                  )}>
+                                    {row.perfRatio.toFixed(0)}%
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400">---</span>
+                                )}
+                              </td>
+                              <td className="py-3 px-3 text-center">
+                                <span className={cn(
+                                  "px-2 py-0.5 rounded-full text-[10px] font-bold border",
+                                  row.statusMandatory === 'موفق موظفی' ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
+                                  row.statusMandatory === 'کسری موظفی' ? "bg-rose-50 text-rose-700 border-rose-200" :
+                                  "bg-slate-100 text-slate-500 border-slate-200"
+                                )}>
+                                  {row.statusMandatory}
+                                </span>
+                              </td>
+                              <td className="py-3 px-3 text-center">
+                                <span className={cn(
+                                  "px-2 py-0.5 rounded-full text-[10px] font-bold border",
+                                  row.statusAvg === 'بالای میانگین' ? "bg-sky-50 text-sky-700 border-sky-200" :
+                                  row.statusAvg === 'زیر میانگین' ? "bg-amber-50 text-amber-700 border-amber-200" :
+                                  "bg-slate-100 text-slate-500 border-slate-200"
+                                )}>
+                                  {row.statusAvg}
+                                </span>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={13} className="py-8 text-center text-slate-400 font-medium">
+                              دوره‌ای ثبت نشده است.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                      {breakout.rows.length > 0 && (
+                        <tfoot className="bg-slate-50 font-bold border-t-2 border-slate-200 text-slate-800">
+                          <tr>
+                            <td colSpan={3} className="py-3 px-4 text-slate-700">
+                              مجموع کل ({breakout.totalPeriodsCount.toLocaleString('fa-IR')} دوره)
+                            </td>
+                            <td className="py-3 px-3 text-center font-extrabold text-slate-800">
+                              {breakout.sumStudyAll.toLocaleString('fa-IR')} د
+                            </td>
+                            <td className="py-3 px-3 text-center font-extrabold text-slate-800">
+                              {breakout.sumDiscAll.toLocaleString('fa-IR')} د
+                            </td>
+                            <td className="py-3 px-3 text-center font-extrabold text-indigo-900 bg-indigo-100/50">
+                              {breakout.sumTotalAll.toLocaleString('fa-IR')} د
+                            </td>
+                            <td className="py-3 px-3 text-center font-extrabold text-slate-700">
+                              {breakout.sumMandatoryAll > 0 ? `${breakout.sumMandatoryAll.toLocaleString('fa-IR')} د` : '---'}
+                            </td>
+                            <td className="py-3 px-3 text-center font-extrabold text-sky-900 bg-sky-100/60">
+                              {breakout.sumGradeAvgAll > 0 ? `${breakout.sumGradeAvgAll.toLocaleString('fa-IR')} د` : '---'}
+                            </td>
+                            <td colSpan={5} className="py-3 px-4 text-left text-xs text-slate-600 font-normal">
+                              مشارکت: <b className="text-slate-800">{breakout.participatedCount.toLocaleString('fa-IR')}</b> از {breakout.totalPeriodsCount.toLocaleString('fa-IR')} دوره (<b className="text-indigo-700">{breakout.commitmentRate}%</b> تعهد به ثبت) | میانگین پایه در تعهد به ثبت: <b className="text-sky-700">{breakout.gradeCommitmentRate}%</b>
+                            </td>
+                          </tr>
+                        </tfoot>
+                      )}
+                    </table>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -1349,9 +1874,9 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
         )}
       </AnimatePresence>
 
-      {/* Hidden Printable PDF Container */}
+      {/* Off-screen Printable PDF Container */}
       {studentDetails && (
-        <div className="hidden">
+        <div style={{ position: 'fixed', left: '-9999px', top: '0px', width: '850px', zIndex: -1000, pointerEvents: 'none', opacity: 0 }}>
           <div ref={pdfReportRef} className="p-8 bg-white text-slate-800 space-y-6 dir-rtl text-xs" style={{ fontFamily: 'Tahoma, Arial, sans-serif' }}>
             
             {/* Report Header */}
@@ -1396,63 +1921,134 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
             </div>
 
             {/* 2. Study Stats & Individual Period Breakdown */}
-            <div className="bg-slate-50 p-4 rounded-lg border border-slate-200" style={{ pageBreakInside: 'avoid' }}>
-              <h2 className="text-sm font-bold text-indigo-900 mb-2 border-b border-slate-200 pb-1">
-                خلاصه و آمار تفکیکی مطالعه (دوره به دوره)
-              </h2>
-              
-              {/* Summary Stats */}
-              <div className="grid grid-cols-3 gap-3 text-xs mb-4 bg-white p-3 rounded border border-slate-200">
-                <div><b>مجموع کل مطالعه:</b> {studyMetrics.totalMinutes.toLocaleString('fa-IR')} دقیقه</div>
-                <div><b>میانگین هر دوره:</b> {studyMetrics.avgMinutes.toLocaleString('fa-IR')} دقیقه</div>
-                <div><b>میزان تعهد به ثبت:</b> {studyMetrics.commitmentRate}%</div>
-              </div>
+            {(() => {
+              const pdfBreakout = getDetailedStudyBreakout();
+              return (
+                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200" style={{ pageBreakInside: 'avoid' }}>
+                  <h2 className="text-sm font-bold text-indigo-900 mb-2 border-b border-slate-200 pb-1">
+                    خلاصه، شاخص‌های عملکرد و آمار تفکیکی مطالعه و مباحثه (دوره به دوره)
+                  </h2>
+                  
+                  {/* 11 KPI Summary Indicators */}
+                  <div className="grid grid-cols-3 gap-2 text-xs mb-4 bg-white p-3 rounded border border-slate-200">
+                    <div><b>مجموع مطالعه کل:</b> {pdfBreakout.sumStudyAll.toLocaleString('fa-IR')} د ({Number((pdfBreakout.sumStudyAll / 60).toFixed(1)).toLocaleString('fa-IR')} س)</div>
+                    <div><b>مجموع مباحثه کل:</b> {pdfBreakout.sumDiscAll.toLocaleString('fa-IR')} د ({Number((pdfBreakout.sumDiscAll / 60).toFixed(1)).toLocaleString('fa-IR')} س)</div>
+                    <div><b>مجموع کل (مطالعه + مباحثه):</b> {pdfBreakout.sumTotalAll.toLocaleString('fa-IR')} د ({Number((pdfBreakout.sumTotalAll / 60).toFixed(1)).toLocaleString('fa-IR')} س)</div>
+                    <div><b>مجموع کل موظفی:</b> {pdfBreakout.sumMandatoryAll > 0 ? `${pdfBreakout.sumMandatoryAll.toLocaleString('fa-IR')} د (${Number((pdfBreakout.sumMandatoryAll / 60).toFixed(1)).toLocaleString('fa-IR')} س)` : '---'}</div>
+                    <div><b>مجموع کل میانگین پایه:</b> {pdfBreakout.sumGradeAvgAll > 0 ? `${pdfBreakout.sumGradeAvgAll.toLocaleString('fa-IR')} د (${Number((pdfBreakout.sumGradeAvgAll / 60).toFixed(1)).toLocaleString('fa-IR')} س)` : '---'}</div>
+                    <div><b>دفعات مشارکت:</b> {pdfBreakout.participatedCount.toLocaleString('fa-IR')} از {pdfBreakout.totalPeriodsCount.toLocaleString('fa-IR')} دوره</div>
+                    <div><b>میزان تعهد به ثبت:</b> {pdfBreakout.commitmentRate}%</div>
+                    <div><b>میانگین پایه در تعهد به ثبت:</b> {pdfBreakout.gradeCommitmentRate}%</div>
+                    <div><b>تعداد بالاتر از موظفی:</b> {pdfBreakout.aboveMandatoryCount.toLocaleString('fa-IR')} مرتبه</div>
+                    <div><b>تعداد کمتر از موظفی:</b> {pdfBreakout.belowMandatoryCount.toLocaleString('fa-IR')} مرتبه</div>
+                    <div><b>تعداد بالاتر از میانگین پایه:</b> {pdfBreakout.aboveAvgCount.toLocaleString('fa-IR')} مرتبه</div>
+                    <div><b>تعداد کمتر از میانگین پایه:</b> {pdfBreakout.belowAvgCount.toLocaleString('fa-IR')} مرتبه</div>
+                  </div>
 
-              {/* Period Breakdown Table */}
-              <h3 className="text-xs font-bold text-slate-700 mb-2">جدول آمار تک تک دوره‌های مطالعه:</h3>
-              {studentDetails.studyPeriods.length > 0 ? (
-                <table className="w-full text-right text-xs border-collapse border border-slate-300">
-                  <thead>
-                    <tr className="bg-slate-200 text-slate-800 font-bold">
-                      <th className="border border-slate-300 px-2 py-1.5 w-8 text-center">#</th>
-                      <th className="border border-slate-300 px-2 py-1.5">عنوان دوره</th>
-                      <th className="border border-slate-300 px-2 py-1.5 text-center">بازه زمانی</th>
-                      <th className="border border-slate-300 px-2 py-1.5 text-center">مطالعه ثبت‌شده</th>
-                      <th className="border border-slate-300 px-2 py-1.5 text-center">الزام قانونی دوره</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {studentDetails.studyPeriods.map((period, index) => {
-                      const log = studentDetails.periodicLogs.find(l => l.periodId === period.id);
-                      const loggedHours = log ? Number(log.hours) || 0 : 0;
-                      const loggedMinutes = Math.round(loggedHours * 60);
-                      const mandatoryHours = Number(period.mandatoryHours) || 0;
-                      const mandatoryMinutes = Math.round(mandatoryHours * 60);
-
-                      return (
-                        <tr key={period.id} className={index % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                          <td className="border border-slate-300 px-2 py-1 text-center font-bold">{index + 1}</td>
-                          <td className="border border-slate-300 px-2 py-1 font-bold">{period.title}</td>
-                          <td className="border border-slate-300 px-2 py-1 text-center text-[11px] dir-ltr">
-                            {formatShamsi(period.startDate)} تا {formatShamsi(period.endDate)}
+                  {/* Period Breakdown Table */}
+                  <h3 className="text-xs font-bold text-slate-700 mb-2">جدول ریز عملکرد دوره‌ای (تفکیک مطالعه، مباحثه، موظفی و میانگین کل پایه):</h3>
+                  {pdfBreakout.rows.length > 0 ? (
+                    <table className="w-full text-right text-[11px] border-collapse border border-slate-300">
+                      <thead>
+                        <tr className="bg-slate-200 text-slate-800 font-bold">
+                          <th className="border border-slate-300 px-1 py-1 w-6 text-center">#</th>
+                          <th className="border border-slate-300 px-1.5 py-1">عنوان دوره</th>
+                          <th className="border border-slate-300 px-1 py-1 text-center">بازه زمانی</th>
+                          <th className="border border-slate-300 px-1 py-1 text-center">مطالعه</th>
+                          <th className="border border-slate-300 px-1 py-1 text-center">مباحثه</th>
+                          <th className="border border-slate-300 px-1 py-1 text-center font-extrabold text-indigo-900 bg-indigo-50">مجموع</th>
+                          <th className="border border-slate-300 px-1 py-1 text-center">موظفی</th>
+                          <th className="border border-slate-300 px-1 py-1 text-center">میانگین پایه</th>
+                          <th className="border border-slate-300 px-1 py-1 text-center">اختلاف موظفی</th>
+                          <th className="border border-slate-300 px-1 py-1 text-center">اختلاف میانگین</th>
+                          <th className="border border-slate-300 px-1 py-1 text-center">تراز</th>
+                          <th className="border border-slate-300 px-1 py-1 text-center">وضعیت موظفی</th>
+                          <th className="border border-slate-300 px-1 py-1 text-center">وضعیت میانگین</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pdfBreakout.rows.map((row) => (
+                          <tr key={row.period.id} className={row.index % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                            <td className="border border-slate-300 px-1 py-1 text-center font-bold">{row.index}</td>
+                            <td className="border border-slate-300 px-1.5 py-1 font-bold">{row.period.title}</td>
+                            <td className="border border-slate-300 px-1 py-1 text-center text-[10px] dir-ltr">
+                              {formatShamsi(row.period.startDate)} تا {formatShamsi(row.period.endDate)}
+                            </td>
+                            <td className="border border-slate-300 px-1 py-1 text-center">
+                              {row.metrics.studyMinutes > 0 ? `${row.metrics.studyMinutes.toLocaleString('fa-IR')} د` : '---'}
+                            </td>
+                            <td className="border border-slate-300 px-1 py-1 text-center">
+                              {row.metrics.discussionMinutes > 0 ? `${row.metrics.discussionMinutes.toLocaleString('fa-IR')} د` : '---'}
+                            </td>
+                            <td className="border border-slate-300 px-1 py-1 text-center font-bold text-indigo-900 bg-indigo-50/50">
+                              {row.metrics.totalMinutes > 0 ? `${row.metrics.totalMinutes.toLocaleString('fa-IR')} د` : '۰'}
+                            </td>
+                            <td className="border border-slate-300 px-1 py-1 text-center text-slate-600">
+                              {row.mandatoryMin > 0 ? `${row.mandatoryMin.toLocaleString('fa-IR')} د` : '---'}
+                            </td>
+                            <td className="border border-slate-300 px-1 py-1 text-center text-slate-600">
+                              {row.avgTotMin > 0 ? `${row.avgTotMin.toLocaleString('fa-IR')} د` : '---'}
+                            </td>
+                            <td className="border border-slate-300 px-1 py-1 text-center font-bold">
+                              {row.mandatoryMin > 0 ? (
+                                <span className={row.diffMandatory >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
+                                  {row.diffMandatory >= 0 ? `+${row.diffMandatory.toLocaleString('fa-IR')}` : row.diffMandatory.toLocaleString('fa-IR')} د
+                                </span>
+                              ) : '---'}
+                            </td>
+                            <td className="border border-slate-300 px-1 py-1 text-center font-bold">
+                              {row.avgTotMin > 0 ? (
+                                <span className={row.diffTotalAvg >= 0 ? 'text-sky-700' : 'text-amber-700'}>
+                                  {row.diffTotalAvg >= 0 ? `+${row.diffTotalAvg.toLocaleString('fa-IR')}` : row.diffTotalAvg.toLocaleString('fa-IR')} د
+                                </span>
+                              ) : '---'}
+                            </td>
+                            <td className="border border-slate-300 px-1 py-1 text-center font-bold">
+                              {row.mandatoryMin > 0 ? `${row.perfRatio.toFixed(0)}%` : '---'}
+                            </td>
+                            <td className="border border-slate-300 px-1 py-1 text-center text-[10px]">
+                              {row.statusMandatory}
+                            </td>
+                            <td className="border border-slate-300 px-1 py-1 text-center text-[10px]">
+                              {row.statusAvg}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-slate-200 font-bold border-t border-slate-300 text-slate-800">
+                        <tr>
+                          <td colSpan={3} className="border border-slate-300 px-1.5 py-1">
+                            مجموع کل ({pdfBreakout.totalPeriodsCount.toLocaleString('fa-IR')} دوره)
                           </td>
-                          <td className="border border-slate-300 px-2 py-1 text-center font-bold text-indigo-900">
-                            {loggedMinutes.toLocaleString('fa-IR')} دقیقه
+                          <td className="border border-slate-300 px-1 py-1 text-center">
+                            {pdfBreakout.sumStudyAll.toLocaleString('fa-IR')} د
                           </td>
-                          <td className="border border-slate-300 px-2 py-1 text-center text-slate-600">
-                            {mandatoryMinutes > 0 ? `${mandatoryMinutes.toLocaleString('fa-IR')} دقیقه` : '---'}
+                          <td className="border border-slate-300 px-1 py-1 text-center">
+                            {pdfBreakout.sumDiscAll.toLocaleString('fa-IR')} د
+                          </td>
+                          <td className="border border-slate-300 px-1 py-1 text-center font-extrabold text-indigo-900 bg-indigo-100">
+                            {pdfBreakout.sumTotalAll.toLocaleString('fa-IR')} د
+                          </td>
+                          <td className="border border-slate-300 px-1 py-1 text-center">
+                            {pdfBreakout.sumMandatoryAll > 0 ? `${pdfBreakout.sumMandatoryAll.toLocaleString('fa-IR')} د` : '---'}
+                          </td>
+                          <td className="border border-slate-300 px-1 py-1 text-center font-extrabold text-sky-900 bg-sky-100">
+                            {pdfBreakout.sumGradeAvgAll > 0 ? `${pdfBreakout.sumGradeAvgAll.toLocaleString('fa-IR')} د` : '---'}
+                          </td>
+                          <td colSpan={5} className="border border-slate-300 px-2 py-1 text-left text-[10px] text-slate-700 font-normal">
+                            مشارکت: <b>{pdfBreakout.participatedCount.toLocaleString('fa-IR')}</b> از {pdfBreakout.totalPeriodsCount.toLocaleString('fa-IR')} دوره (<b>{pdfBreakout.commitmentRate}%</b> تعهد) | میانگین پایه در تعهد به ثبت: <b>{pdfBreakout.gradeCommitmentRate}%</b>
                           </td>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              ) : (
-                <p className="text-xs text-slate-500 italic bg-white p-2 rounded border border-slate-200">
-                  دوره‌‌ای ثبت نشده است.
-                </p>
-              )}
-            </div>
+                      </tfoot>
+                    </table>
+                  ) : (
+                    <p className="text-xs text-slate-500 italic bg-white p-2 rounded border border-slate-200">
+                      دوره‌‌ای ثبت نشده است.
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* 3. Oral Exams & Individual Scores */}
             <div className="bg-slate-50 p-4 rounded-lg border border-slate-200" style={{ pageBreakInside: 'avoid' }}>
