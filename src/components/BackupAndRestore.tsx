@@ -61,6 +61,7 @@ interface MentorStats {
 
 export default function BackupAndRestore() {
   const { currentMentor, currentMentorId } = useMentor();
+  const isManager = currentMentor.isHeadManager || currentMentorId === 'shahpoori';
   const [students, setStudents] = useState<Student[]>([]);
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [exportingMentorId, setExportingMentorId] = useState<string | null>(null);
@@ -120,8 +121,8 @@ export default function BackupAndRestore() {
   const loadCloudBackups = async () => {
     setIsLoadingCloud(true);
     try {
-      const isManager = currentMentor.isHeadManager || currentMentorId === 'shahpoori';
-      const records = await fetchCloudBackups(selectedMentorFilter, isManager);
+      const targetFilter = isManager ? selectedMentorFilter : currentMentorId;
+      const records = await fetchCloudBackups(targetFilter, isManager);
       setCloudBackups(records);
     } catch (err) {
       console.error('Error fetching cloud backups:', err);
@@ -624,7 +625,7 @@ export default function BackupAndRestore() {
           </div>
 
           {/* Admin Mentor Filter Selector */}
-          {isHeadManager ? (
+          {isManager ? (
             <div className="flex items-center gap-2 bg-slate-100 p-1.5 rounded-2xl text-xs">
               <ShieldCheck size={16} className="text-amber-600 shrink-0 mr-1" />
               <span className="font-bold text-slate-700 hidden md:inline">دسترسی مدیر (فیلتر کاربر):</span>

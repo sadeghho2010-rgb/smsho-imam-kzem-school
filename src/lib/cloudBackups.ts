@@ -184,12 +184,16 @@ export async function fetchCloudBackups(
     console.error('Error fetching local backups store:', e);
   }
 
-  // 3. Fetch list directly from Supabase Storage folders as fallback / sync
-  const foldersToFetch = isManager 
+  // Determine effective mentor/folder to fetch
+  const activeMentorId = isManager ? (filterMentorId || 'all') : filterMentorId;
+
+  // 3. Fetch list directly from Supabase Storage folders
+  const foldersToFetch = (isManager && (!activeMentorId || activeMentorId === 'all' || activeMentorId === 'shahpoori'))
     ? ['hosseini', 'hayati', 'soleymani', 'boss']
-    : [getFolderForMentor(filterMentorId || '')];
+    : [getFolderForMentor(activeMentorId || '')];
 
   for (const f of foldersToFetch) {
+    if (!f) continue;
     try {
       const { data: storageFiles, error } = await supabase.storage
         .from(BUCKET_NAME)
@@ -246,13 +250,23 @@ export async function fetchCloudBackups(
   // Sort by created date descending
   list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-  // Filter logic
-  if (isManager && (!filterMentorId || filterMentorId === 'all' || filterMentorId === 'shahpoori')) {
-    return list;
+  // STRICT SECURITY FILTERING:
+  // If user is NOT a manager, strictly restrict to their own mentor folder/id ONLY
+  if (!isManager) {
+    const targetFolder = getFolderForMentor(activeMentorId || '');
+    return list.filter(r => 
+      r.mentorId === activeMentorId || 
+      (targetFolder && getFolderForMentor(r.mentorId) === targetFolder)
+    );
   }
 
-  if (filterMentorId && filterMentorId !== 'all') {
-    return list.filter(r => r.mentorId === filterMentorId || getFolderForMentor(r.mentorId) === getFolderForMentor(filterMentorId));
+  // If user IS a manager, apply specific mentor filter if selected
+  if (activeMentorId && activeMentorId !== 'all') {
+    const targetFolder = getFolderForMentor(activeMentorId);
+    return list.filter(r => 
+      r.mentorId === activeMentorId || 
+      (targetFolder && getFolderForMentor(r.mentorId) === targetFolder)
+    );
   }
 
   return list;
