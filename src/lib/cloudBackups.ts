@@ -52,6 +52,18 @@ export function generateBackupFilename(mentorName: string, dateInput: Date = new
   return `پشتیبان_${cleanName}_${dStr}_${timeStr}.json`;
 }
 
+export function generateStorageKey(mentorId: string, dateInput: Date = new Date()): string {
+  const cleanId = (mentorId || 'user').replace(/[^a-zA-Z0-9_-]/g, '_');
+  let dStr = '';
+  try {
+    dStr = dateInput.toLocaleDateString('fa-IR-u-nu-latn').replace(/\//g, '-');
+  } catch (e) {
+    dStr = dateInput.toISOString().slice(0, 10);
+  }
+  const timeStr = dateInput.toTimeString().slice(0, 5).replace(/:/g, '-');
+  return `backup_${cleanId}_${dStr}_${timeStr}.json`;
+}
+
 /**
  * Uploads a backup package to Supabase Storage & Firestore / Local DB
  */
@@ -66,9 +78,10 @@ export async function uploadBackupToCloud(
   const jsonBlob = new Blob([jsonStr], { type: 'application/json' });
   const fileSizeBytes = jsonBlob.size;
   const fileName = generateBackupFilename(mentorName, now);
+  const storageKey = generateStorageKey(mentorId, now);
 
   const folder = getFolderForMentor(mentorId);
-  const filePath = `${folder}/${fileName}`;
+  const filePath = `${folder}/${storageKey}`;
 
   const studentCount = Array.isArray(backupPackage.students) 
     ? backupPackage.students.length 
@@ -89,15 +102,20 @@ export async function uploadBackupToCloud(
       });
 
     if (uploadError) {
-      console.warn('Supabase storage upload notice:', uploadError.message);
+      console.error('Supabase storage upload error:', uploadError);
+      if (uploadError.message.includes('not found') || uploadError.message.includes('Bucket')) {
+        throw new Error(`باکت «backups» در Supabase یافت نشد. اسکریپت SQL را در Supabase اجرا کنید یا باکت backups را بسازید.`);
+      }
+      throw new Error(`خطای Supabase Storage: ${uploadError.message}`);
     } else {
       const { data: urlData } = supabase.storage
         .from(BUCKET_NAME)
         .getPublicUrl(filePath);
       supabasePublicUrl = urlData?.publicUrl || '';
     }
-  } catch (err) {
-    console.warn('Supabase storage connection notice:', err);
+  } catch (err: any) {
+    console.error('Supabase storage connection exception:', err);
+    throw err;
   }
 
   const recordId = `backup_${mentorId}_${Date.now()}`;
@@ -192,15 +210,20 @@ export async function fetchCloudBackups(
               if (f === 'boss') { mentorName = 'استاد شاهپوری (مدیر)'; mentorId = 'shahpoori'; }
 
               const created = fileObj.created_at || new Date().toISOString();
+              const persianDt = getPersianDateTime(new Date(created));
+              const displayName = fileObj.name.startsWith('backup_')
+                ? `پشتیبان_${mentorName}_${persianDt}.json`
+                : fileObj.name;
+
               const rec: CloudBackupRecord = {
                 id: `sp_${f}_${fileObj.id || fileObj.name}`,
                 mentorId,
                 mentorName,
                 mentorRole: f === 'boss' ? 'مدیر ارشد' : 'استاد راهنما',
-                fileName: fileObj.name,
+                fileName: displayName,
                 folderPath: path,
                 createdAt: created,
-                persianDate: getPersianDateTime(new Date(created)),
+                persianDate: persianDt,
                 fileSizeBytes: fileObj.metadata?.size || 0,
                 fileSizeFormatted: formatBytes(fileObj.metadata?.size || 0),
                 totalRecords: 1,
