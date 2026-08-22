@@ -144,3 +144,16 @@ export interface StudentComment {
   createdAt: string;
   updatedAt?: string;
 }
+
+export interface DiscussionGroup {
+  id: string;
+  title: string;
+  subject?: string;
+  grade?: string; // 'پایه ۷' | 'پایه ۸' | 'پایه ۹'
+  mentorId?: string; // 'hayati' | 'hosseini' | 'soleimani' | 'shahpoori'
+  memberStudentIds: string[]; // Active students in this discussion group
+  externalMembers?: string[]; // External discussion partners ("سایر" / custom names)
+  description?: string;
+  createdAt: string;
+  updatedAt?: string;
+}

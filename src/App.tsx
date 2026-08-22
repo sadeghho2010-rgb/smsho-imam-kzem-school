@@ -15,6 +15,7 @@ import BackupAndRestore from './components/BackupAndRestore';
 import ManagerFiles from './components/ManagerFiles';
 import TodoList from './components/TodoList';
 import StudentComments from './components/StudentComments';
+import StudyDiscussion from './components/StudyDiscussion';
 import MentorSelectorModal from './components/MentorSelectorModal';
 import { MentorProvider, useMentor } from './context/MentorContext';
 import { motion, AnimatePresence } from 'motion/react';
@@ -54,6 +55,8 @@ function AppContent() {
         return <StudentList initialStudentId={selectedStudentIdForTab} />;
       case 'active-students':
         return <StudentList onlyActive initialStudentId={selectedStudentIdForTab} />;
+      case 'discussion':
+        return <StudyDiscussion initialStudentId={selectedStudentIdForTab} />;
       case 'programs':
         return <Programs />;
       case 'research':

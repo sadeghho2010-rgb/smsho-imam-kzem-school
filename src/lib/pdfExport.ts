@@ -14,6 +14,10 @@ export async function exportElementToPdf({
   orientation = 'portrait',
   marginMM = 6
 }: ExportPdfOptions): Promise<void> {
+  if (!element) {
+    throw new Error('PDF Export Error: Element is missing or undefined.');
+  }
+
   const canvas = await html2canvasPro(element, {
     scale: 2,
     useCORS: true,
@@ -45,6 +49,10 @@ export async function exportElementToPdf({
     }
   });
 
+  if (!canvas.width || !canvas.height || canvas.width <= 0 || canvas.height <= 0) {
+    throw new Error('PDF Export Error: Generated canvas has invalid dimensions.');
+  }
+
   const imgData = canvas.toDataURL('image/jpeg', 0.95);
   const pdf = new jsPDF({
     unit: 'mm',
@@ -57,6 +65,10 @@ export async function exportElementToPdf({
 
   const printWidth = pageWidth - (marginMM * 2);
   const imgHeight = (canvas.height * printWidth) / canvas.width;
+
+  if (!isFinite(imgHeight) || imgHeight <= 0) {
+    throw new Error('PDF Export Error: Calculated image height is invalid.');
+  }
 
   let heightLeft = imgHeight;
   let position = marginMM;

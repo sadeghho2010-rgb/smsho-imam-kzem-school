@@ -53,7 +53,8 @@ import {
   OralExam, 
   ResearchRecord, 
   Program, 
-  Enrollment 
+  Enrollment,
+  DiscussionGroup
 } from '../types';
 import { useMentor } from '../context/MentorContext';
 import { sendChatMessage } from '../lib/geminiService';
@@ -102,6 +103,17 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
     oralExams: OralExam[];
     research: ResearchRecord | null;
     enrolledPrograms: Program[];
+    discussionSummary?: {
+      groups: DiscussionGroup[];
+      partnerNames: string[];
+      internalPartnerCount: number;
+      externalPartnerCount: number;
+      studentTotalHours: number;
+      partnersAvgHours: number;
+      diffHours: number;
+      statusText: string;
+      status: 'more' | 'less' | 'equal';
+    };
   } | null>(null);
 
   // AI Chat Panel State
@@ -260,7 +272,8 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
         allOralExams,
         allResearch,
         allEnrollments,
-        allPrograms
+        allPrograms,
+        allDiscussionGroups
       ] = await Promise.all([
         localDb.getDocs<PeriodicStudyLog>('periodic_study_logs'),
         localDb.getDocs<StudyPeriod>('study_periods'),
@@ -269,7 +282,8 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
         localDb.getDocs<OralExam>('oral_exams'),
         localDb.getDocs<ResearchRecord>('research_records'),
         localDb.getDocs<Enrollment>('enrollments'),
-        localDb.getDocs<Program>('programs')
+        localDb.getDocs<Program>('programs'),
+        localDb.getDocs<DiscussionGroup>('discussion_groups')
       ]);
 
       // Filter study periods to match active periods in Study Statistics
@@ -317,6 +331,61 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
       const researchList = allResearch.filter(r => r.studentId === studentId);
       const research = researchList.length > 0 ? researchList[0] : null;
 
+      // Discussion Groups & Partners Analysis
+      const userGroups = (allDiscussionGroups || []).filter(g => g.memberStudentIds?.includes(studentId));
+      const partnerIds = new Set<string>();
+      const externalPartnerNames: string[] = [];
+
+      userGroups.forEach(g => {
+        g.memberStudentIds?.forEach(id => {
+          if (id !== studentId) partnerIds.add(id);
+        });
+        g.externalMembers?.forEach(ext => externalPartnerNames.push(ext));
+      });
+
+      const internalPartnerStudents = studentList.filter(s => partnerIds.has(s.id));
+      const allPartnerDisplayNames = [
+        ...internalPartnerStudents.map(s => s.name),
+        ...externalPartnerNames
+      ];
+
+      const studentPeriodicHours = periodicLogs.reduce((sum, l) => sum + (Number(l.hours) || 0), 0);
+      const studentStatsHours = studyStats.reduce((sum, s) => sum + (Number(s.studyHours) || 0) + (Number(s.discussionHours) || 0), 0);
+      const studentTotalHours = studentPeriodicHours + studentStatsHours;
+
+      let partnerHoursSum = 0;
+      internalPartnerStudents.forEach(p => {
+        const pLogs = allPeriodicLogs.filter(l => l.studentId === p.id);
+        const pStats = allStudyStats.filter(s => s.studentId === p.id);
+        const pHours = pLogs.reduce((sum, l) => sum + (Number(l.hours) || 0), 0) +
+                       pStats.reduce((sum, s) => sum + (Number(s.studyHours) || 0) + (Number(s.discussionHours) || 0), 0);
+        partnerHoursSum += pHours;
+      });
+
+      const partnersAvgHours = internalPartnerStudents.length > 0 
+        ? Math.round((partnerHoursSum / internalPartnerStudents.length) * 10) / 10 
+        : 0;
+
+      const diffHours = Math.round((studentTotalHours - partnersAvgHours) * 10) / 10;
+      const status: 'more' | 'less' | 'equal' = diffHours > 0.5 ? 'more' : diffHours < -0.5 ? 'less' : 'equal';
+      const statusText = status === 'more'
+        ? `مطالعه بیشتر از هم‌بحثی‌ها (+${diffHours} ساعت بالاتر از میانگین هم‌بحثی‌ها)`
+        : status === 'less'
+        ? `مطالعه کمتر از هم‌بحثی‌ها (${Math.abs(diffHours)} ساعت پایین‌تر از میانگین هم‌بحثی‌ها)`
+        : `مطالعه پایاپای با میانگین هم‌بحثی‌ها`;
+
+      const discussionSummary = {
+        groups: userGroups,
+        partnerNames: allPartnerDisplayNames,
+        internalPartnerCount: internalPartnerStudents.length,
+        externalPartnerCount: externalPartnerNames.length,
+        studentTotalHours,
+        partnersAvgHours,
+        diffHours,
+        statusText,
+        status
+      };
+
       setStudentDetails({
         info: student,
         periodicLogs,
@@ -328,7 +397,8 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
         comments,
         oralExams,
         research,
-        enrolledPrograms
+        enrolledPrograms,
+        discussionSummary
       });
 
       setChatMessages([]);
@@ -649,6 +719,13 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
           تعداد_دفعات_کمتر_از_موظفی: `${detailedBreakout.belowMandatoryCount} مرتبه`,
           تعداد_دفعات_بالاتر_از_میانگین_پایه: `${detailedBreakout.aboveAvgCount} مرتبه`,
           تعداد_دفعات_کمتر_از_میانگین_پایه: `${detailedBreakout.belowAvgCount} مرتبه`
+        },
+        گروه_ها_و_هم_مباحثه_ای_ها: {
+          گروه_های_مباحثه_عضو: studentDetails.discussionSummary?.groups?.map(g => g.title) || [],
+          اسامی_هم_بحثی_ها: studentDetails.discussionSummary?.partnerNames || [],
+          ساعات_مطالعه_این_طلبه: studentDetails.discussionSummary?.studentTotalHours || 0,
+          میانگین_ساعات_هم_بحثی_ها: studentDetails.discussionSummary?.partnersAvgHours || 0,
+          وضعیت_مطالعه_نسبت_به_هم_بحثی_ها: studentDetails.discussionSummary?.statusText || 'ثبت‌نشده'
         },
         ریز_عملکرد_تک_تک_دوره_ها: detailedBreakout.rows.map(r => ({
           عنوان_دوره: r.period.title,
@@ -993,8 +1070,8 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
             )}
           </div>
 
-          {/* 3 Main Analytical Cards Grid: Always 3 columns side-by-side on laptop screens */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* 4 Main Analytical Cards Grid: 4 columns side-by-side on large screens */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
 
             {/* Column 1: خلاصه آمار مطالعه و وضعیت مقایسه‌ای (به دقیقه) */}
             <div 
@@ -1227,6 +1304,59 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
 
               <div className="pt-3 border-t border-slate-100 mt-4 flex items-center justify-between text-[11px] font-bold text-indigo-600">
                 <span>ورود به بخش پژوهش و نگارش</span>
+                <ChevronLeft size={16} className="group-hover:-translate-x-1 transition-transform" />
+              </div>
+            </div>
+
+            {/* Column 4: هم‌مباحثه‌ای‌ها و مباحثات */}
+            <div 
+              onClick={() => onNavigate?.('discussion', selectedStudentId)}
+              className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col justify-between cursor-pointer hover:border-indigo-400 transition-all group h-full"
+            >
+              <div>
+                <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <Award size={18} className="text-indigo-600" />
+                    <h3 className="text-sm font-bold text-slate-800 group-hover:text-indigo-600 transition-colors">هم‌مباحثه‌ای‌ها و مباحثه</h3>
+                  </div>
+                  <div className="flex items-center gap-1 text-xs font-bold text-indigo-600">
+                    <span>{studentDetails.discussionSummary?.groups?.length || 0} گروه</span>
+                    <ChevronLeft size={16} className="group-hover:-translate-x-1 transition-transform" />
+                  </div>
+                </div>
+
+                <div className="space-y-3 text-xs">
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                    <span className="text-[10px] font-bold text-slate-400 block mb-1">اسامی هم‌بحثی‌ها</span>
+                    <p className="font-bold text-slate-800 leading-relaxed">
+                      {studentDetails.discussionSummary?.partnerNames?.length ? (
+                        studentDetails.discussionSummary.partnerNames.join('، ')
+                      ) : (
+                        <span className="text-slate-400 font-normal">هم‌بحثی ثبت نشده است</span>
+                      )}
+                    </p>
+                  </div>
+
+                  {studentDetails.discussionSummary && (
+                    <div className="p-3 rounded-xl border bg-indigo-50/40 border-indigo-100 space-y-1.5">
+                      <div className="flex items-center justify-between text-[11px] font-bold">
+                        <span className="text-slate-600">ساعات مطالعه این طلبه:</span>
+                        <span className="text-slate-900">{studentDetails.discussionSummary.studentTotalHours} ساعت</span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] font-bold">
+                        <span className="text-slate-600">میانگین هم‌بحثی‌ها:</span>
+                        <span className="text-indigo-700">{studentDetails.discussionSummary.partnersAvgHours} ساعت</span>
+                      </div>
+                      <div className="text-[10px] font-black pt-1 border-t border-indigo-100 text-indigo-900">
+                        {studentDetails.discussionSummary.statusText}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 mt-4 flex items-center justify-between text-[11px] font-bold text-indigo-600">
+                <span>مدیریت گروه‌های مباحثه</span>
                 <ChevronLeft size={16} className="group-hover:-translate-x-1 transition-transform" />
               </div>
             </div>
@@ -1919,6 +2049,33 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
                 <div><b>استاد راهنما:</b> {(studentDetails.info as any).mentorName || '---'}</div>
               </div>
             </div>
+
+            {/* 1.5. Discussion Partners & Group Info */}
+            {studentDetails.discussionSummary && (
+              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200" style={{ pageBreakInside: 'avoid' }}>
+                <h2 className="text-sm font-bold text-indigo-900 mb-2 border-b border-slate-200 pb-1 flex justify-between items-center">
+                  <span>وضعیت گروه‌های مباحثه و هم‌بحثی‌ها</span>
+                  <span className="text-[11px] text-slate-600 font-normal">
+                    {studentDetails.discussionSummary.groups.length} گروه مباحثه
+                  </span>
+                </h2>
+                <div className="space-y-2 text-xs">
+                  <div>
+                    <b>اسامی هم‌مباحثه‌ای‌ها:</b>{' '}
+                    {studentDetails.discussionSummary.partnerNames.length > 0
+                      ? studentDetails.discussionSummary.partnerNames.join('، ')
+                      : 'هم‌بحثی ثبت نشده'}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 bg-white p-2.5 rounded border border-slate-200">
+                    <div><b>ساعات مطالعه این طلبه:</b> {studentDetails.discussionSummary.studentTotalHours} ساعت</div>
+                    <div><b>میانگین مطالعه هم‌بحثی‌ها:</b> {studentDetails.discussionSummary.partnersAvgHours} ساعت</div>
+                  </div>
+                  <div className="p-2 rounded bg-indigo-50 border border-indigo-100 font-bold text-indigo-900">
+                    وضعیت مقایسه‌ای: {studentDetails.discussionSummary.statusText}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* 2. Study Stats & Individual Period Breakdown */}
             {(() => {

@@ -75,7 +75,7 @@ export interface StudentBackupPackage {
 }
 
 const DB_NAME = 'TOLAB_OFFLINE_LOCAL_DB';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 export const COLLECTIONS = [
   'students',
@@ -93,7 +93,8 @@ export const COLLECTIONS = [
   'oral_exams',
   'settings',
   'cloud_backups',
-  'manager_files'
+  'manager_files',
+  'discussion_groups'
 ] as const;
 
 export type CollectionName = typeof COLLECTIONS[number] | string;
@@ -245,11 +246,45 @@ class LocalDatabase {
     });
   }
 
+  // LocalStorage Fallback Helpers for when IndexedDB Store does not exist
+  private getLocalStorageDocs<T>(resolvedCol: string): T[] {
+    try {
+      const raw = localStorage.getItem(`fallback_idb_${resolvedCol}`);
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  private setLocalStorageDoc(resolvedCol: string, doc: any) {
+    try {
+      const docs = this.getLocalStorageDocs(resolvedCol);
+      const idx = docs.findIndex((d: any) => d.id === doc.id);
+      if (idx >= 0) docs[idx] = doc;
+      else docs.push(doc);
+      localStorage.setItem(`fallback_idb_${resolvedCol}`, JSON.stringify(docs));
+    } catch (e) {
+      console.error('LocalStorage fallback write error:', e);
+    }
+  }
+
+  private deleteLocalStorageDoc(resolvedCol: string, id: string) {
+    try {
+      const docs = this.getLocalStorageDocs(resolvedCol);
+      const filtered = docs.filter((d: any) => d.id !== id);
+      localStorage.setItem(`fallback_idb_${resolvedCol}`, JSON.stringify(filtered));
+    } catch (e) {
+      console.error('LocalStorage fallback delete error:', e);
+    }
+  }
+
   // Get all documents from a collection
   async getDocs<T = any>(collectionName: CollectionName): Promise<T[]> {
     const resolvedCol = this.resolveCollection(collectionName as string);
     const db = await this.getDb();
-    if (!db.objectStoreNames.contains(resolvedCol)) return [];
+    if (!db.objectStoreNames.contains(resolvedCol)) {
+      return this.getLocalStorageDocs<T>(resolvedCol);
+    }
 
     return new Promise((resolve, reject) => {
       try {
@@ -258,14 +293,24 @@ class LocalDatabase {
         const request = store.getAll();
 
         request.onsuccess = () => {
-          resolve((request.result || []) as T[]);
+          const idbResult = (request.result || []) as T[];
+          const lsResult = this.getLocalStorageDocs<T>(resolvedCol);
+          // Combine IDB result with any LS fallback docs
+          const idSet = new Set((idbResult as any[]).map(x => x.id));
+          const combined = [...idbResult];
+          for (const item of lsResult as any[]) {
+            if (!idSet.has(item.id)) {
+              combined.push(item);
+            }
+          }
+          resolve(combined as T[]);
         };
         request.onerror = () => {
           reject(request.error);
         };
       } catch (e) {
         console.warn(`Object store ${resolvedCol} error:`, e);
-        resolve([]);
+        resolve(this.getLocalStorageDocs<T>(resolvedCol));
       }
     });
   }
@@ -274,7 +319,10 @@ class LocalDatabase {
   async getDoc<T = any>(collectionName: CollectionName, id: string): Promise<T | null> {
     const resolvedCol = this.resolveCollection(collectionName as string);
     const db = await this.getDb();
-    if (!db.objectStoreNames.contains(resolvedCol)) return null;
+    if (!db.objectStoreNames.contains(resolvedCol)) {
+      const lsDocs = this.getLocalStorageDocs<T>(resolvedCol);
+      return (lsDocs as any[]).find(x => x.id === id) || null;
+    }
 
     return new Promise((resolve, reject) => {
       try {
@@ -283,14 +331,20 @@ class LocalDatabase {
         const request = store.get(id);
 
         request.onsuccess = () => {
-          resolve((request.result as T) || null);
+          if (request.result) {
+            resolve(request.result as T);
+          } else {
+            const lsDocs = this.getLocalStorageDocs<T>(resolvedCol);
+            resolve((lsDocs as any[]).find(x => x.id === id) || null);
+          }
         };
         request.onerror = () => {
           reject(request.error);
         };
       } catch (e) {
         console.warn(`Object store ${resolvedCol} error:`, e);
-        resolve(null);
+        const lsDocs = this.getLocalStorageDocs<T>(resolvedCol);
+        resolve((lsDocs as any[]).find(x => x.id === id) || null);
       }
     });
   }
@@ -307,7 +361,8 @@ class LocalDatabase {
     record.id = id;
 
     if (!db.objectStoreNames.contains(resolvedCol)) {
-      console.warn(`Object store ${resolvedCol} not found on disk, skipping local store put`);
+      this.setLocalStorageDoc(resolvedCol, record);
+      this.notify();
       return id;
     }
 
@@ -322,10 +377,14 @@ class LocalDatabase {
           resolve(id);
         };
         request.onerror = () => {
-          reject(request.error);
+          this.setLocalStorageDoc(resolvedCol, record);
+          this.notify();
+          resolve(id);
         };
       } catch (e) {
         console.warn(`Object store ${resolvedCol} put error:`, e);
+        this.setLocalStorageDoc(resolvedCol, record);
+        this.notify();
         resolve(id);
       }
     });
@@ -335,7 +394,11 @@ class LocalDatabase {
   async updateDoc(collectionName: CollectionName, id: string, data: any): Promise<void> {
     const resolvedCol = this.resolveCollection(collectionName as string);
     const db = await this.getDb();
-    if (!db.objectStoreNames.contains(resolvedCol)) return;
+    if (!db.objectStoreNames.contains(resolvedCol)) {
+      this.setLocalStorageDoc(resolvedCol, { ...data, id });
+      this.notify();
+      return;
+    }
 
     return new Promise((resolve, reject) => {
       try {
@@ -354,11 +417,21 @@ class LocalDatabase {
             this.notify();
             resolve();
           };
-          putReq.onerror = () => reject(putReq.error);
+          putReq.onerror = () => {
+            this.setLocalStorageDoc(resolvedCol, updated);
+            this.notify();
+            resolve();
+          };
         };
-        getReq.onerror = () => reject(getReq.error);
+        getReq.onerror = () => {
+          this.setLocalStorageDoc(resolvedCol, { ...data, id });
+          this.notify();
+          resolve();
+        };
       } catch (e) {
         console.warn(`Object store ${resolvedCol} update error:`, e);
+        this.setLocalStorageDoc(resolvedCol, { ...data, id });
+        this.notify();
         resolve();
       }
     });
@@ -368,7 +441,12 @@ class LocalDatabase {
   async deleteDoc(collectionName: CollectionName, id: string): Promise<void> {
     const resolvedCol = this.resolveCollection(collectionName as string);
     const db = await this.getDb();
-    if (!db.objectStoreNames.contains(resolvedCol)) return;
+    this.deleteLocalStorageDoc(resolvedCol, id);
+
+    if (!db.objectStoreNames.contains(resolvedCol)) {
+      this.notify();
+      return;
+    }
 
     return new Promise((resolve, reject) => {
       try {
@@ -381,10 +459,12 @@ class LocalDatabase {
           resolve();
         };
         request.onerror = () => {
-          reject(request.error);
+          this.notify();
+          resolve();
         };
       } catch (e) {
         console.warn(`Object store ${resolvedCol} delete error:`, e);
+        this.notify();
         resolve();
       }
     });
@@ -1508,6 +1588,31 @@ class LocalDatabase {
           }
         ];
 
+        const initialDiscussionGroups = [
+          {
+            id: 'group_1',
+            title: 'گروه مباحثه مکاسب و اصول',
+            subject: 'فقه و اصول',
+            grade: 'پایه ۷',
+            mentorId: 'hayati',
+            memberStudentIds: ['stu_1'],
+            externalMembers: ['طلبه کاظمی (سایر - خارج از مدرسه)'],
+            description: 'مباحثه روزانه کتاب مکاسب بعد از درس اصلی',
+            createdAt: new Date().toISOString()
+          },
+          {
+            id: 'group_2',
+            title: 'گروه مباحثه رسائل و حلقه ثالثه',
+            subject: 'اصول فقه',
+            grade: 'پایه ۸',
+            mentorId: 'hosseini',
+            memberStudentIds: ['stu_2'],
+            externalMembers: ['طلبه حسینی (سایر)'],
+            description: 'مباحثه تخصصی مباحث الفاظ و حجج',
+            createdAt: new Date().toISOString()
+          }
+        ];
+
         await Promise.all([
           this.bulkPut('students', initialStudents),
           this.bulkPut('programs', initialPrograms),
@@ -1516,7 +1621,8 @@ class LocalDatabase {
           this.bulkPut('periodic_study_logs', initialPeriodicLogs),
           this.bulkPut('student_comments', initialComments),
           this.bulkPut('oral_exams', initialOralExams),
-          this.bulkPut('todos', initialTodos)
+          this.bulkPut('todos', initialTodos),
+          this.bulkPut('discussion_groups', initialDiscussionGroups)
         ]);
       }
     };

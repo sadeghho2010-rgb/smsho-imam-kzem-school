@@ -28,6 +28,7 @@ const baseMenuItems = [
   { id: 'todos', label: 'پیگیری‌ها', icon: GraduationCap },
   { id: 'students', label: 'همه کاربران', icon: Users },
   { id: 'active-students', label: 'کاربران فعال', icon: UserCheck },
+  { id: 'discussion', label: 'بخش مباحثه', icon: Users },
   { id: 'programs', label: 'برنامه‌های مدرسه', icon: Calendar },
   { id: 'stats', label: 'آمار مطالعه', icon: BarChart2 },
   { id: 'research', label: 'بخش پژوهش', icon: BookOpen },
