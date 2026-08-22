@@ -162,9 +162,10 @@ export function normalizeStudent(item: any): any {
   };
 }
 
-export function getMentorKeyForGrade(grade?: string): 'hayati' | 'hosseini' | 'soleimani' | 'other' {
+export function getMentorKeyForGrade(grade?: string): 'hayati' | 'hosseini' | 'soleimani' | 'asadi' | 'other' {
   if (!grade) return 'other';
   const g = String(grade).trim().toLowerCase();
+  if (g.includes('10') || g.includes('۱۰') || g.includes('ده') || g.includes('دهم') || g === '10' || g === '۱۰') return 'asadi';
   if (g.includes('7') || g.includes('۷') || g.includes('هفت') || g === '7' || g === '۷') return 'hayati';
   if (g.includes('8') || g.includes('۸') || g.includes('هشت') || g === '8' || g === '۸') return 'hosseini';
   if (g.includes('9') || g.includes('۹') || g.includes('نه') || g.includes('نهم') || g === '9' || g === '۹') return 'soleimani';
@@ -175,6 +176,7 @@ export const MENTOR_META: Record<string, { id: string; name: string; role: strin
   hayati: { id: 'hayati', name: 'استاد حیاتی', role: 'مسئول پایه ۷', gradeLabel: 'پایه ۷' },
   hosseini: { id: 'hosseini', name: 'استاد حسینی', role: 'مسئول پایه ۸', gradeLabel: 'پایه ۸' },
   soleimani: { id: 'soleimani', name: 'استاد سلیمانی', role: 'مسئول پایه ۹', gradeLabel: 'پایه ۹' },
+  asadi: { id: 'asadi', name: 'استاد اسدی', role: 'مسئول پایه ۱۰', gradeLabel: 'پایه ۱۰' },
   shahpoori: { id: 'shahpoori', name: 'استاد شاهپوری', role: 'مدیر اصلی', gradeLabel: 'کل پایه‌ها' },
 };
 

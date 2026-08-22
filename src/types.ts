@@ -149,8 +149,8 @@ export interface DiscussionGroup {
   id: string;
   title: string;
   subject?: string;
-  grade?: string; // 'پایه ۷' | 'پایه ۸' | 'پایه ۹'
-  mentorId?: string; // 'hayati' | 'hosseini' | 'soleimani' | 'shahpoori'
+  grade?: string; // 'پایه ۷' | 'پایه ۸' | 'پایه ۹' | 'پایه ۱۰'
+  mentorId?: string; // 'hayati' | 'hosseini' | 'soleimani' | 'asadi' | 'shahpoori'
   memberStudentIds: string[]; // Active students in this discussion group
   externalMembers?: string[]; // External discussion partners ("سایر" / custom names)
   description?: string;

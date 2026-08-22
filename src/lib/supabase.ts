@@ -24,6 +24,8 @@ export function getFolderForMentor(mentorId: string): string {
     case 'soleimani':
     case 'soleymani':
       return 'soleymani';
+    case 'asadi':
+      return 'asadi';
     case 'shahpoori':
     case 'boss':
       return 'boss';

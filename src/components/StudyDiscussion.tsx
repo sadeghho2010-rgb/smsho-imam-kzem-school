@@ -159,7 +159,7 @@ export default function StudyDiscussion({ initialStudentId }: StudyDiscussionPro
     setEditingGroup(null);
     setFormTitle('');
     setFormSubject('فقه و اصول');
-    const defaultGrade = currentMentor.gradeLabel.includes('۸') ? 'پایه ۸' : currentMentor.gradeLabel.includes('۹') ? 'پایه ۹' : 'پایه ۷';
+    const defaultGrade = currentMentor.gradeLabel.includes('۸') ? 'پایه ۸' : currentMentor.gradeLabel.includes('۹') ? 'پایه ۹' : currentMentor.gradeLabel.includes('۱۰') ? 'پایه ۱۰' : 'پایه ۷';
     setFormGrade(defaultGrade);
     setModalGradeFilter('all');
     setModalSearchQuery('');
@@ -690,6 +690,7 @@ export default function StudyDiscussion({ initialStudentId }: StudyDiscussionPro
               <option value="پایه ۷">پایه ۷</option>
               <option value="پایه ۸">پایه ۸</option>
               <option value="پایه ۹">پایه ۹</option>
+              <option value="پایه ۱۰">پایه ۱۰</option>
             </select>
 
             {/* Search Input */}
@@ -1291,6 +1292,7 @@ export default function StudyDiscussion({ initialStudentId }: StudyDiscussionPro
                       <option value="پایه ۷">پایه ۷</option>
                       <option value="پایه ۸">پایه ۸</option>
                       <option value="پایه ۹">پایه ۹</option>
+                      <option value="پایه ۱۰">پایه ۱۰</option>
                     </select>
                   </div>
 
@@ -1329,6 +1331,7 @@ export default function StudyDiscussion({ initialStudentId }: StudyDiscussionPro
                         <option value="پایه ۷">پایه ۷</option>
                         <option value="پایه ۸">پایه ۸</option>
                         <option value="پایه ۹">پایه ۹</option>
+                        <option value="پایه ۱۰">پایه ۱۰</option>
                       </select>
 
                       {/* Select all / Deselect all */}

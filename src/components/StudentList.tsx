@@ -284,6 +284,7 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
     if (currentMentorId === 'hayati') defaultGrade = 'پایه 7';
     else if (currentMentorId === 'hosseini') defaultGrade = 'پایه 8';
     else if (currentMentorId === 'soleimani') defaultGrade = 'پایه 9';
+    else if (currentMentorId === 'asadi') defaultGrade = 'پایه 10';
 
     setNewStudent({ 
       name: '', 
@@ -1133,10 +1134,22 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
                       >
                         پایه ۹ (سلیمانی)
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => setNewStudent(prev => ({ ...prev, grade: 'پایه 10' }))}
+                        className={cn(
+                          "px-2 py-0.5 text-[10px] rounded border transition-colors",
+                          newStudent.grade?.includes('10') || newStudent.grade?.includes('۱۰')
+                            ? "bg-rose-100 text-rose-800 border-rose-300 font-bold"
+                            : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                        )}
+                      >
+                        پایه ۱۰ (اسدی)
+                      </button>
                     </div>
                     <input 
                       type="text" 
-                      placeholder="مثال: پایه 7 یا پایه 8"
+                      placeholder="مثال: پایه 7 یا پایه 10"
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
                       value={newStudent.grade || ''}
                       onChange={(e) => setNewStudent({...newStudent, grade: e.target.value})}

@@ -131,7 +131,7 @@ function AppContent() {
                 {activeTab !== 'students' && (
                   <span className="text-[10px] text-slate-400 font-medium">
                     {currentMentor.isHeadManager 
-                      ? (shahpooriFilter === 'all' ? 'نمایش کل کاربران فعال' : `نمایش کاربران: ${shahpooriFilter === 'hayati' ? 'استاد حیاتی (پایه ۷)' : shahpooriFilter === 'hosseini' ? 'استاد حسینی (پایه ۸)' : 'استاد سلیمانی (پایه ۹)'}`)
+                      ? (shahpooriFilter === 'all' ? 'نمایش کل کاربران فعال' : `نمایش کاربران: ${shahpooriFilter === 'hayati' ? 'استاد حیاتی (پایه ۷)' : shahpooriFilter === 'hosseini' ? 'استاد حسینی (پایه ۸)' : shahpooriFilter === 'soleimani' ? 'استاد سلیمانی (پایه ۹)' : 'استاد اسدی (پایه ۱۰)'}`)
                       : `محیط اختصاصی: ${currentMentor.name} (${currentMentor.gradeLabel})`
                     }
                   </span>
@@ -225,6 +225,19 @@ function AppContent() {
                 >
                   <div className="w-2 h-2 rounded-full bg-purple-400 shrink-0"></div>
                   <span>استاد سلیمانی (پایه ۹)</span>
+                </button>
+
+                <button
+                  onClick={() => setShahpooriFilter('asadi')}
+                  className={cn(
+                    "px-2.5 py-1 rounded-lg transition-all text-[11px] flex items-center gap-1",
+                    shahpooriFilter === 'asadi'
+                      ? "bg-rose-600 text-white shadow-sm"
+                      : "text-rose-700 hover:bg-rose-50"
+                  )}
+                >
+                  <div className="w-2 h-2 rounded-full bg-rose-400 shrink-0"></div>
+                  <span>استاد اسدی (پایه ۱۰)</span>
                 </button>
               </div>
             </div>

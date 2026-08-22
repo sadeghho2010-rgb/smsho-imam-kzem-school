@@ -397,6 +397,7 @@ export default function ManagerFiles() {
                     <option value="hayati">استاد حیاتی (مسئول پایه ۷)</option>
                     <option value="hosseini">استاد حسینی (مسئول پایه ۸)</option>
                     <option value="soleimani">استاد سلیمانی (مسئول پایه ۹)</option>
+                    <option value="asadi">استاد اسدی (مسئول پایه ۱۰)</option>
                   </select>
                 </div>
               ) : (
@@ -404,7 +405,7 @@ export default function ManagerFiles() {
                   <label className="text-xs font-bold text-slate-700">وضعیت دسترسی:</label>
                   <div className="p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl text-xs font-bold flex items-center gap-2">
                     <CheckCircle2 size={16} className="text-emerald-600" />
-                    <span>فایل در منوی تمامی اساتید (پایه ۷، ۸ و ۹) قابل مشاهده خواهد بود.</span>
+                    <span>فایل در منوی تمامی اساتید (پایه ۷، ۸، ۹ و ۱۰) قابل مشاهده خواهد بود.</span>
                   </div>
                 </div>
               )}

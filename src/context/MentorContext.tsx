@@ -2,8 +2,8 @@ import React, { createContext, useContext, useState } from 'react';
 import { Student } from '../types';
 import { isStudentActive, getMentorKeyForGrade } from '../lib/localDb';
 
-export type MentorId = 'hayati' | 'hosseini' | 'soleimani' | 'shahpoori';
-export type ShahpooriFilter = 'all' | 'hayati' | 'hosseini' | 'soleimani';
+export type MentorId = 'hayati' | 'hosseini' | 'soleimani' | 'asadi' | 'shahpoori';
+export type ShahpooriFilter = 'all' | 'hayati' | 'hosseini' | 'soleimani' | 'asadi';
 
 export interface MentorInfo {
   id: MentorId;
@@ -52,6 +52,17 @@ export const MENTORS: Record<MentorId, MentorInfo> = {
     badgeBorder: 'border-purple-200',
     dotColor: 'bg-purple-500',
   },
+  asadi: {
+    id: 'asadi',
+    name: 'استاد اسدی',
+    role: 'مسئول پایه ۱۰',
+    gradeLabel: 'پایه ۱۰',
+    avatarBg: 'bg-rose-600',
+    badgeBg: 'bg-rose-50',
+    badgeText: 'text-rose-700',
+    badgeBorder: 'border-rose-200',
+    dotColor: 'bg-rose-500',
+  },
   shahpoori: {
     id: 'shahpoori',
     name: 'استاد شاهپوری',
@@ -66,7 +77,7 @@ export const MENTORS: Record<MentorId, MentorInfo> = {
   },
 };
 
-export function getStudentMentorKey(grade?: string): 'hayati' | 'hosseini' | 'soleimani' | 'other' {
+export function getStudentMentorKey(grade?: string): 'hayati' | 'hosseini' | 'soleimani' | 'asadi' | 'other' {
   return getMentorKeyForGrade(grade);
 }
 

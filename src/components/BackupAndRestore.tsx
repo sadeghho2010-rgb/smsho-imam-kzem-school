@@ -460,7 +460,7 @@ export default function BackupAndRestore() {
         }
       });
 
-      const files = Array.from(fileList);
+      const files: File[] = Array.from(fileList);
 
       for (const file of files) {
         const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
@@ -681,6 +681,32 @@ export default function BackupAndRestore() {
       dotColor: 'bg-purple-500',
       studentCount: students.filter((s) => getMentorKeyForGrade(s.grade) === 'soleimani').length,
       photoCount: students.filter((s) => getMentorKeyForGrade(s.grade) === 'soleimani' && s.photoUrl).length
+    },
+    {
+      id: 'asadi',
+      name: 'استاد اسدی',
+      role: 'مسئول پایه ۱۰',
+      gradeLabel: 'پایه ۱۰',
+      avatarBg: 'bg-rose-600',
+      badgeBg: 'bg-rose-50',
+      badgeText: 'text-rose-700',
+      badgeBorder: 'border-rose-200',
+      dotColor: 'bg-rose-500',
+      studentCount: students.filter((s) => getMentorKeyForGrade(s.grade) === 'asadi').length,
+      photoCount: students.filter((s) => getMentorKeyForGrade(s.grade) === 'asadi' && s.photoUrl).length
+    },
+    {
+      id: 'asadi',
+      name: 'استاد اسدی',
+      role: 'مسئول پایه ۱۰',
+      gradeLabel: 'پایه ۱۰',
+      avatarBg: 'bg-rose-600',
+      badgeBg: 'bg-rose-50',
+      badgeText: 'text-rose-700',
+      badgeBorder: 'border-rose-200',
+      dotColor: 'bg-rose-500',
+      studentCount: students.filter((s) => getMentorKeyForGrade(s.grade) === 'asadi').length,
+      photoCount: students.filter((s) => getMentorKeyForGrade(s.grade) === 'asadi' && s.photoUrl).length
     },
     {
       id: 'shahpoori',

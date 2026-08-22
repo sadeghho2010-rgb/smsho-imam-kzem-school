@@ -217,7 +217,7 @@ export async function fetchCloudBackups(
 
   // 3. Fetch list directly from Supabase Storage folders
   const foldersToFetch = (isManager && (!activeMentorId || activeMentorId === 'all' || activeMentorId === 'shahpoori'))
-    ? ['hosseini', 'hayati', 'soleymani', 'boss']
+    ? ['hosseini', 'hayati', 'soleymani', 'asadi', 'boss']
     : [getFolderForMentor(activeMentorId || '')];
 
   for (const f of foldersToFetch) {
@@ -239,6 +239,7 @@ export async function fetchCloudBackups(
               if (f === 'hosseini') { mentorName = 'استاد حسینی'; mentorId = 'hosseini'; }
               if (f === 'hayati') { mentorName = 'استاد حیاتی'; mentorId = 'hayati'; }
               if (f === 'soleymani') { mentorName = 'استاد سلیمانی'; mentorId = 'soleimani'; }
+              if (f === 'asadi') { mentorName = 'استاد اسدی'; mentorId = 'asadi'; }
               if (f === 'boss') { mentorName = 'استاد شاهپوری (مدیر)'; mentorId = 'shahpoori'; }
 
               const created = fileObj.created_at || new Date().toISOString();
