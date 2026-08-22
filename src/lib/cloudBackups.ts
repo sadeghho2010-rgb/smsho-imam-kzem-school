@@ -64,6 +64,30 @@ export function generateStorageKey(mentorId: string, dateInput: Date = new Date(
   return `backup_${cleanId}_${dStr}_${timeStr}.json`;
 }
 
+export function stripPhotosFromBackupPackage(backupPackage: any): any {
+  if (!backupPackage || typeof backupPackage !== 'object') return backupPackage;
+  const cloned = JSON.parse(JSON.stringify(backupPackage));
+
+  if (cloned._meta) {
+    cloned._meta.hasPhotos = false;
+  }
+
+  if (Array.isArray(cloned.students)) {
+    cloned.students = cloned.students.map((s: any) => {
+      if (s) {
+        delete s.photoUrl;
+      }
+      return s;
+    });
+  }
+
+  if (cloned.student && typeof cloned.student === 'object') {
+    delete cloned.student.photoUrl;
+  }
+
+  return cloned;
+}
+
 /**
  * Uploads a backup package to Supabase Storage & Firestore / Local DB
  */
@@ -74,7 +98,11 @@ export async function uploadBackupToCloud(
   backupPackage: any
 ): Promise<CloudBackupRecord> {
   const now = new Date();
-  const jsonStr = JSON.stringify(backupPackage, null, 2);
+  
+  // Rule: Photos are stored ONLY offline. Strip photoUrl completely before uploading to cloud database.
+  const sanitizedPackage = stripPhotosFromBackupPackage(backupPackage);
+
+  const jsonStr = JSON.stringify(sanitizedPackage, null, 2);
   const jsonBlob = new Blob([jsonStr], { type: 'application/json' });
   const fileSizeBytes = jsonBlob.size;
   const fileName = generateBackupFilename(mentorName, now);
@@ -83,12 +111,12 @@ export async function uploadBackupToCloud(
   const folder = getFolderForMentor(mentorId);
   const filePath = `${folder}/${storageKey}`;
 
-  const studentCount = Array.isArray(backupPackage.students) 
-    ? backupPackage.students.length 
-    : (backupPackage.student ? 1 : 0);
+  const studentCount = Array.isArray(sanitizedPackage.students) 
+    ? sanitizedPackage.students.length 
+    : (sanitizedPackage.student ? 1 : 0);
 
-  const totalRecords = backupPackage._meta?.totalRecords || 
-    (Array.isArray(backupPackage.students) ? backupPackage.students.length : 1);
+  const totalRecords = sanitizedPackage._meta?.totalRecords || 
+    (Array.isArray(sanitizedPackage.students) ? sanitizedPackage.students.length : 1);
 
   let supabasePublicUrl = '';
 

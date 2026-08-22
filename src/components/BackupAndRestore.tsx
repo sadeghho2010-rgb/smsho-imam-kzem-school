@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import JSZip from 'jszip';
 import {
   Download,
   Upload,
@@ -25,9 +26,12 @@ import {
   CloudDownload,
   History,
   KeyRound,
-  FileText
+  FileText,
+  FolderDown,
+  Camera,
+  FolderUp
 } from 'lucide-react';
-import { localDb, getMentorKeyForGrade } from '../lib/localDb';
+import { localDb, getMentorKeyForGrade, normalizeNationalId } from '../lib/localDb';
 import { Student } from '../types';
 import { useMentor, MentorId, MENTORS } from '../context/MentorContext';
 import {
@@ -43,6 +47,45 @@ import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 
 const REQUIRED_PASSWORD = '8411924';
+
+function base64ToUint8Array(dataUrl: string): { data: Uint8Array; ext: string } {
+  const parts = dataUrl.split(',');
+  const header = parts[0] || '';
+  let ext = 'jpg';
+  if (header.includes('png')) ext = 'png';
+  else if (header.includes('webp')) ext = 'webp';
+  else if (header.includes('gif')) ext = 'gif';
+
+  const base64Str = parts[1] || parts[0];
+  const binaryStr = window.atob(base64Str);
+  const len = binaryStr.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryStr.charCodeAt(i);
+  }
+  return { data: bytes, ext };
+}
+
+function extractNationalIdFromFilename(filename: string): string {
+  const nameOnly = filename.split('/').pop()?.split('\\').pop() || filename;
+  const nameWithoutExt = nameOnly.substring(0, nameOnly.lastIndexOf('.')) || nameOnly;
+  const normalized = normalizeNationalId(nameWithoutExt);
+  const tenDigitMatch = normalized.match(/\d{10}/);
+  if (tenDigitMatch) {
+    return tenDigitMatch[0];
+  }
+  const digitsOnly = normalized.replace(/\D/g, '');
+  return digitsOnly || normalized;
+}
+
+function readFileAsDataUrl(file: File | Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 interface MentorStats {
   id: MentorId;
@@ -103,8 +146,18 @@ export default function BackupAndRestore() {
   });
 
   const universalFileInputRef = useRef<HTMLInputElement>(null);
+  const photoFileInputRef = useRef<HTMLInputElement>(null);
   const [showResetConfirmModal, setShowResetConfirmModal] = useState<boolean>(false);
   const [resetConfirmText, setResetConfirmText] = useState<string>('');
+
+  // Photo Management State
+  const [isProcessingPhotos, setIsProcessingPhotos] = useState<boolean>(false);
+  const [showPhotoResultModal, setShowPhotoResultModal] = useState<boolean>(false);
+  const [photoResult, setPhotoResult] = useState<{
+    matched: { studentName: string; nationalId: string; fileName: string }[];
+    unmatched: string[];
+    totalFiles: number;
+  } | null>(null);
 
   const loadData = async () => {
     try {
@@ -352,7 +405,7 @@ export default function BackupAndRestore() {
     });
   };
 
-  // Export photos package
+  // Export photos package (JSON)
   const handleExportAllPhotosJson = async () => {
     try {
       const allStudents = await localDb.getDocs<Student>('students');
@@ -382,6 +435,209 @@ export default function BackupAndRestore() {
         type: 'error',
         text: `خطا در استخراج عکس‌ها: ${e?.message || 'نامشخص'}`
       });
+    }
+  };
+
+  // Upload and Match Photos by National ID (Individual files or ZIP folder)
+  const handlePhotoFilesUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
+
+    setIsProcessingPhotos(true);
+    setStatusMessage(null);
+
+    const matchedList: { studentName: string; nationalId: string; fileName: string }[] = [];
+    const unmatchedList: string[] = [];
+    let processedCount = 0;
+
+    try {
+      const allStudents = await localDb.getDocs<Student>('students');
+      const studentNatMap = new Map<string, Student>();
+      allStudents.forEach(st => {
+        if (st.nationalId) {
+          const norm = normalizeNationalId(st.nationalId);
+          if (norm) studentNatMap.set(norm, st);
+        }
+      });
+
+      const files = Array.from(fileList);
+
+      for (const file of files) {
+        const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+
+        // 1. ZIP File containing photos
+        if (ext === '.zip') {
+          try {
+            const zip = new JSZip();
+            const zipContent = await zip.loadAsync(file);
+
+            for (const [relativePath, zipEntry] of Object.entries(zipContent.files)) {
+              if (zipEntry.dir) continue;
+              if (relativePath.includes('__MACOSX') || relativePath.startsWith('.')) continue;
+
+              const entryName = relativePath.split('/').pop() || '';
+              const entryExt = entryName.substring(entryName.lastIndexOf('.')).toLowerCase();
+
+              if (['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'].includes(entryExt)) {
+                processedCount++;
+                const extractedNatId = extractNationalIdFromFilename(entryName);
+                const targetStudent = studentNatMap.get(extractedNatId);
+
+                if (targetStudent) {
+                  const base64 = await zipEntry.async('base64');
+                  let mime = 'image/jpeg';
+                  if (entryExt === '.png') mime = 'image/png';
+                  else if (entryExt === '.webp') mime = 'image/webp';
+                  const dataUrl = `data:${mime};base64,${base64}`;
+
+                  targetStudent.photoUrl = dataUrl;
+                  await localDb.updateDoc('students', targetStudent.id, { photoUrl: dataUrl });
+
+                  matchedList.push({
+                    studentName: targetStudent.name,
+                    nationalId: targetStudent.nationalId || extractedNatId,
+                    fileName: entryName
+                  });
+                } else {
+                  unmatchedList.push(`${entryName} (کد استخراج شده: ${extractedNatId || 'نامشخص'})`);
+                }
+              }
+            }
+          } catch (zipErr: any) {
+            console.error('Error unzipping photo folder:', zipErr);
+            setStatusMessage({
+              type: 'error',
+              text: `خطا در خواندن پوشه ZIP عکس‌ها: ${zipErr?.message || 'نامعتبر'}`
+            });
+          }
+        }
+        // 2. Direct Image Files (.jpg, .png, etc.)
+        else if (['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'].includes(ext)) {
+          processedCount++;
+          const extractedNatId = extractNationalIdFromFilename(file.name);
+          const targetStudent = studentNatMap.get(extractedNatId);
+
+          if (targetStudent) {
+            const dataUrl = await readFileAsDataUrl(file);
+            targetStudent.photoUrl = dataUrl;
+            await localDb.updateDoc('students', targetStudent.id, { photoUrl: dataUrl });
+
+            matchedList.push({
+              studentName: targetStudent.name,
+              nationalId: targetStudent.nationalId || extractedNatId,
+              fileName: file.name
+            });
+          } else {
+            unmatchedList.push(`${file.name} (کد استخراج شده: ${extractedNatId || 'نامشخص'})`);
+          }
+        }
+        // 3. JSON Photo Archive
+        else if (ext === '.json') {
+          try {
+            const text = await file.text();
+            const parsed = JSON.parse(text);
+            const photoItems = parsed.photos || parsed.students || [];
+
+            for (const item of photoItems) {
+              const itemNatId = normalizeNationalId(item.nationalId || item.nationalCode || item.code);
+              if (itemNatId && item.photoUrl) {
+                processedCount++;
+                const targetStudent = studentNatMap.get(itemNatId);
+                if (targetStudent) {
+                  targetStudent.photoUrl = item.photoUrl;
+                  await localDb.updateDoc('students', targetStudent.id, { photoUrl: item.photoUrl });
+                  matchedList.push({
+                    studentName: targetStudent.name,
+                    nationalId: targetStudent.nationalId || itemNatId,
+                    fileName: `عکس ${targetStudent.name}`
+                  });
+                } else {
+                  unmatchedList.push(`کد ملی ${itemNatId} مربوط به طلبه‌ای یافت نشد`);
+                }
+              }
+            }
+          } catch (jsonErr: any) {
+            console.error('Error parsing photo json:', jsonErr);
+          }
+        }
+      }
+
+      setPhotoResult({
+        matched: matchedList,
+        unmatched: unmatchedList,
+        totalFiles: processedCount
+      });
+      setShowPhotoResultModal(true);
+      await loadData();
+    } catch (err: any) {
+      console.error('Photo upload processing error:', err);
+      setStatusMessage({
+        type: 'error',
+        text: `خطا در پردازش عکس‌ها: ${err?.message || 'نامشخص'}`
+      });
+    } finally {
+      setIsProcessingPhotos(false);
+      if (photoFileInputRef.current) photoFileInputRef.current.value = '';
+    }
+  };
+
+  // Export Photos as ZIP Folder named by National ID
+  const handleExportPhotosZip = async () => {
+    setIsProcessingPhotos(true);
+    setStatusMessage(null);
+    try {
+      const allStudents = await localDb.getDocs<Student>('students');
+      const studentsWithPhotos = allStudents.filter(s => !!s.photoUrl);
+
+      if (studentsWithPhotos.length === 0) {
+        setStatusMessage({
+          type: 'info',
+          text: 'هیچ عکسی برای طلاب در پایگاه داده محلی ذخیره نشده است.'
+        });
+        setIsProcessingPhotos(false);
+        return;
+      }
+
+      const zip = new JSZip();
+      const folderName = `عکس_های_طلاب`;
+      const photoFolder = zip.folder(folderName) || zip;
+
+      let addedCount = 0;
+      studentsWithPhotos.forEach(s => {
+        if (s.photoUrl) {
+          const { data, ext } = base64ToUint8Array(s.photoUrl);
+          const natId = normalizeNationalId(s.nationalId) || s.id;
+          const fileName = `${natId}.${ext}`;
+          photoFolder.file(fileName, data);
+          addedCount++;
+        }
+      });
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const dateStr = new Date().toLocaleDateString('fa-IR-u-nu-latn').replace(/\//g, '-');
+      const zipFileName = `آرشیو_عکس_طلاب_کد_ملی_${dateStr}.zip`;
+
+      const url = URL.createObjectURL(zipBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = zipFileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      setStatusMessage({
+        type: 'success',
+        text: `پوشه فشرده (ZIP) شامل ${addedCount} عکس با نام‌های کد ملی با موفقیت دانلود شد (${zipFileName}).`
+      });
+    } catch (err: any) {
+      console.error('Photo ZIP export error:', err);
+      setStatusMessage({
+        type: 'error',
+        text: `خطا در تولید فایل ZIP عکس‌ها: ${err?.message || 'نامشخص'}`
+      });
+    } finally {
+      setIsProcessingPhotos(false);
     }
   };
 
@@ -829,67 +1085,145 @@ export default function BackupAndRestore() {
         </div>
       </div>
 
-      {/* SECTION 5: Photos Archive & Database Clear Tools */}
-      <div className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200 shadow-sm space-y-5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      {/* SECTION 5: Dedicated User Photo Management & Offline Backup */}
+      <div className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200 shadow-sm space-y-6">
+        {/* Hidden Photo File Input */}
+        <input
+          type="file"
+          ref={photoFileInputRef}
+          onChange={handlePhotoFilesUpload}
+          accept=".jpg,.jpeg,.png,.webp,.bmp,.zip,.json"
+          multiple
+          className="hidden"
+        />
+
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold shrink-0">
-              <ImageIcon size={24} />
+              <Camera size={24} />
             </div>
             <div>
-              <h2 className="text-lg font-black text-slate-800">۵. آرشیو تصاویر و پاک‌سازی داده‌ها</h2>
-              <p className="text-xs text-slate-500">
-                دریافت آرشیو مستقل عکس‌های طلاب یا پاک‌سازی کامل دیتابیس محلی
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-black text-slate-800">۵. بخش ویژه بارگذاری، تطبیق و پشتیبان‌گیری عکس‌های طلاب</h2>
+                <span className="text-[11px] px-2.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-full font-bold flex items-center gap-1">
+                  <ShieldCheck size={12} /> ۱۰۰٪ آفلاین
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                بارگذاری عکس‌ها (با کد ملی)، تطبیق هوشمند با طلاب و دریافت پوشه فشرده ZIP یا فایل پشتیبان آفلاین عکس‌ها
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleExportAllPhotosJson}
-              disabled={stats.totalPhotos === 0}
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 rounded-xl text-xs font-bold transition-all disabled:opacity-40"
-            >
-              <Download size={15} />
-              <span>دانلود آرشیو عکس‌ها (JSON)</span>
-            </button>
-
-            <button
-              onClick={() => setShowResetConfirmModal(true)}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-xl transition-all font-bold"
-            >
-              <Trash2 size={14} />
-              <span>پاک‌سازی کامل دیتابیس</span>
-            </button>
+          <div className="flex items-center gap-2 bg-slate-100 p-2 rounded-2xl text-xs font-bold text-slate-700 shrink-0">
+            <ImageIcon size={16} className="text-amber-600" />
+            <span>عکس‌های ثبت شده: </span>
+            <span className="text-amber-700 text-sm font-black">{stats.totalPhotos}</span>
+            <span className="text-slate-400">از {stats.totalStudents} طلبه</span>
           </div>
         </div>
 
-        {/* Local DB Collections Breakdown */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 text-center pt-2">
-          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
-            <span className="block text-lg font-black text-slate-800">{stats.collectionCounts.students || 0}</span>
-            <span className="text-[11px] text-slate-500 font-medium">پرونده طلاب</span>
+        {/* Privacy & Cloud Exclusions Banner */}
+        <div className="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-4 text-xs text-amber-900 leading-relaxed flex items-start gap-3">
+          <Info size={18} className="text-amber-600 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <strong className="block font-bold">دستورالعمل محرمانه بودن عکس‌های طلاب:</strong>
+            <p className="text-amber-800 text-[11px]">
+              عکس‌های طلاب صرفاً به صورت آفلاین روی مرورگر سیستم شما ذخیره شده و فقط در پشتیبان‌گیری‌های آفلاین (فایل ZIP یا فایل‌های JSON محلی) قرار می‌گیرند. <strong>هنگام ارسال یا پشتیبان‌گیری در دیتابیس ابری، عکس‌ها به صورت خودکار حذف می‌گردند</strong> تا هیچ تصویری به سرور ارسال نشود.
+            </p>
           </div>
-          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
-            <span className="block text-lg font-black text-slate-800">{stats.collectionCounts.research || 0}</span>
-            <span className="text-[11px] text-slate-500 font-medium">سوابق پژوهشی</span>
+        </div>
+
+        {/* Grid Action Boxes */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {/* Box 1: Upload Photos with National ID Matching */}
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4 flex flex-col justify-between">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 font-bold text-slate-800 text-sm">
+                <FolderUp size={18} className="text-indigo-600" />
+                <span>الف) بارگذاری عکس‌ها / پوشه ZIP (تطبیق خودکار)</span>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                عکس یا پوشه فشرده (ZIP) عکس‌ها را انتخاب کنید. نام هر عکس باید برابر با <strong>کد ملی طلبه</strong> باشد (مثلاً <code className="bg-white px-1.5 py-0.5 rounded border border-slate-200 font-mono text-indigo-600">0012345678.jpg</code>). نرم‌افزار به صورت هوشمند هر عکس را به طلبه مربوطه متصل می‌نماید.
+              </p>
+            </div>
+
+            <button
+              onClick={() => photoFileInputRef.current?.click()}
+              disabled={isProcessingPhotos}
+              className="w-full flex items-center justify-center gap-2 py-3.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md hover:shadow-indigo-200 disabled:opacity-50"
+            >
+              {isProcessingPhotos ? (
+                <>
+                  <RefreshCw size={16} className="animate-spin" />
+                  <span>در حال پردازش و تطبیق عکس‌ها...</span>
+                </>
+              ) : (
+                <>
+                  <Upload size={16} />
+                  <span>انتخاب عکس‌ها یا پوشه ZIP عکس (تطبیق با کد ملی)</span>
+                </>
+              )}
+            </button>
           </div>
-          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
-            <span className="block text-lg font-black text-slate-800">{stats.collectionCounts.study_periods || 0}</span>
-            <span className="text-[11px] text-slate-500 font-medium">دوره‌های مطالعاتی</span>
+
+          {/* Box 2: Export Photos as ZIP Folder */}
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4 flex flex-col justify-between">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 font-bold text-slate-800 text-sm">
+                <FolderDown size={18} className="text-amber-600" />
+                <span>ب) پشتیبان‌گیری و دانلود پوشه عکس‌های طلاب</span>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                با کلیک بر روی این دکمه، یک پوشه فشرده (ZIP) شامل تمام عکس‌های طلاب موجود در سیستم تولید و دانلود می‌شود. نام هر فایل داخل پوشه برابر با <strong>کد ملی طلبه</strong> خواهد بود.
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2">
+              <button
+                onClick={handleExportPhotosZip}
+                disabled={isProcessingPhotos || stats.totalPhotos === 0}
+                className="flex-1 flex items-center justify-center gap-2 py-3 px-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-all shadow-md hover:shadow-amber-200 disabled:opacity-50"
+              >
+                {isProcessingPhotos ? (
+                  <RefreshCw size={16} className="animate-spin" />
+                ) : (
+                  <FolderDown size={16} />
+                )}
+                <span>دانلود پوشه ZIP عکس‌ها</span>
+              </button>
+
+              <button
+                onClick={handleExportAllPhotosJson}
+                disabled={isProcessingPhotos || stats.totalPhotos === 0}
+                className="flex items-center justify-center gap-1.5 py-3 px-3 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+                title="دانلود نسخه JSON آفلاین"
+              >
+                <Download size={14} className="text-slate-500" />
+                <span>دانلود JSON</span>
+              </button>
+            </div>
           </div>
-          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
-            <span className="block text-lg font-black text-slate-800">{stats.collectionCounts.periodic_study_logs || 0}</span>
-            <span className="text-[11px] text-slate-500 font-medium">ثبت ساعت مطالعه</span>
+        </div>
+
+        {/* Database Stats Breakdown & Reset Button */}
+        <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs">
+          <div className="flex flex-wrap items-center gap-3 text-slate-500">
+            <span>آمار رکوردهای محلی:</span>
+            <span className="font-bold text-slate-800">{stats.collectionCounts.students || 0} طلبه</span>
+            <span>•</span>
+            <span className="font-bold text-slate-800">{stats.collectionCounts.research || 0} پژوهش</span>
+            <span>•</span>
+            <span className="font-bold text-slate-800">{stats.collectionCounts.study_periods || 0} دوره مطالعه</span>
           </div>
-          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
-            <span className="block text-lg font-black text-slate-800">{stats.collectionCounts.student_comments || 0}</span>
-            <span className="text-[11px] text-slate-500 font-medium">نظرات و جلسات</span>
-          </div>
-          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
-            <span className="block text-lg font-black text-slate-800">{stats.collectionCounts.oral_exams || 0}</span>
-            <span className="text-[11px] text-slate-500 font-medium">امتحانات شفاهی</span>
-          </div>
+
+          <button
+            onClick={() => setShowResetConfirmModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-xl transition-all font-bold shrink-0"
+          >
+            <Trash2 size={14} />
+            <span>پاک‌سازی کامل دیتابیس محلی</span>
+          </button>
         </div>
       </div>
 
@@ -1152,6 +1486,99 @@ export default function BackupAndRestore() {
                   className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all"
                 >
                   انصراف
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL 5: Photo Matching Result Modal */}
+      <AnimatePresence>
+        {showPhotoResultModal && photoResult && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-3xl p-6 max-w-lg w-full border border-slate-200 shadow-2xl space-y-4 text-right max-h-[85vh] flex flex-col"
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+                    <ImageIcon size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-slate-900">گزارش تطبیق و بارگذاری عکس‌های طلاب</h3>
+                    <p className="text-xs text-slate-500">تعداد پردازش کل: {photoResult.totalFiles} فایل</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowPhotoResultModal(false)}
+                  className="text-slate-400 hover:text-slate-600 p-1"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="space-y-4 overflow-y-auto flex-1 pr-1">
+                {/* Summary Badges */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-2xl text-center space-y-0.5">
+                    <span className="block text-xl font-black text-emerald-700">{photoResult.matched.length}</span>
+                    <span className="text-xs font-bold text-emerald-800">عکس‌های منطبق شده</span>
+                  </div>
+                  <div className="bg-amber-50 border border-amber-200 p-3 rounded-2xl text-center space-y-0.5">
+                    <span className="block text-xl font-black text-amber-700">{photoResult.unmatched.length}</span>
+                    <span className="text-xs font-bold text-amber-800">عکس‌های بدون تطبیق</span>
+                  </div>
+                </div>
+
+                {/* Matched List */}
+                {photoResult.matched.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-black text-slate-700 flex items-center gap-1.5">
+                      <CheckCircle2 size={15} className="text-emerald-600" />
+                      <span>طلاب به‌روزرسانی شده ({photoResult.matched.length} مورد):</span>
+                    </h4>
+                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 max-h-40 overflow-y-auto space-y-1.5 text-xs">
+                      {photoResult.matched.map((m, idx) => (
+                        <div key={idx} className="flex items-center justify-between bg-white p-2 rounded-xl border border-slate-100">
+                          <span className="font-bold text-slate-800">{m.studentName}</span>
+                          <span className="text-[11px] text-slate-500 font-mono">کد ملی: {m.nationalId}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Unmatched List */}
+                {photoResult.unmatched.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-black text-slate-700 flex items-center gap-1.5">
+                      <AlertTriangle size={15} className="text-amber-600" />
+                      <span>عکس‌های بدون کد ملی مطابقت یافته ({photoResult.unmatched.length} مورد):</span>
+                    </h4>
+                    <p className="text-[11px] text-slate-500">
+                      مطمئن شوید نام فایل دقیقاً برابر کد ملی طلبه در سیستم است (مثلاً 0012345678.jpg).
+                    </p>
+                    <div className="bg-amber-50/60 border border-amber-200 rounded-2xl p-3 max-h-36 overflow-y-auto space-y-1 text-xs font-mono text-amber-900">
+                      {photoResult.unmatched.map((u, idx) => (
+                        <div key={idx} className="py-1 border-b border-amber-100 last:border-0 truncate">
+                          • {u}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-2 border-t border-slate-100">
+                <button
+                  onClick={() => setShowPhotoResultModal(false)}
+                  className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all"
+                >
+                  متوجه شدم و بستن
                 </button>
               </div>
             </motion.div>
