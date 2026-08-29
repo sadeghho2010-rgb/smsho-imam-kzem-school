@@ -142,7 +142,6 @@ export default function Programs() {
   };
 
   const deleteProgram = async (id: string) => {
-    if (!window.confirm("آیا از حذف این برنامه اطمینان دارید؟")) return;
     try {
       await localDb.deleteDoc('programs', id);
       fetchData();

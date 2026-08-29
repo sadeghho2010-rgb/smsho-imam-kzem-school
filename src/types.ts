@@ -58,6 +58,41 @@ export interface ResearchRecord {
   updatedAt: string;
 }
 
+export interface ResearchHistoryItem {
+  id: string;
+  studentId: string;
+  topic: string;
+  type?: 'individual' | 'group';
+  stage?: string;
+  academicYearOrPeriod?: string;
+  description?: string;
+  summary?: string;
+  score?: string;
+  professorNotes?: string;
+  supervisorNotes?: string;
+  criticNotes?: string;
+  usages?: string[];
+  archivedAt: string;
+  originalRecordSnapshot?: Partial<ResearchRecord>;
+}
+
+export interface ResearchSkillDef {
+  id: string;
+  title: string;
+  category?: 'روش و ابزار' | 'نگارش و ویرایش' | 'نرمافزار و دیجیتال' | 'زبان و ترجمه' | 'عمومی';
+  description?: string;
+  createdAt?: string;
+}
+
+export interface StudentResearchSkills {
+  id: string;
+  studentId: string;
+  skillIds: string[];
+  customSkills?: string[];
+  notes?: string;
+  updatedAt: string;
+}
+
 export interface ConversationArchive {
   id: string;
   studentId: string;

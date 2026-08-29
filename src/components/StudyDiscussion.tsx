@@ -249,15 +249,13 @@ export default function StudyDiscussion({ initialStudentId }: StudyDiscussionPro
 
   // Delete Group
   const handleDeleteGroup = async (groupId: string) => {
-    if (window.confirm('آیا از حذف این گروه مباحثه اطمینان دارید؟')) {
-      try {
-        await localDb.deleteDoc('discussion_groups', groupId);
-        setToastMessage('گروه مباحثه با موفقیت حذف گردید.');
-        await loadData();
-        setTimeout(() => setToastMessage(''), 4000);
-      } catch (err) {
-        console.error('Error deleting group:', err);
-      }
+    try {
+      await localDb.deleteDoc('discussion_groups', groupId);
+      setToastMessage('گروه مباحثه با موفقیت حذف گردید.');
+      await loadData();
+      setTimeout(() => setToastMessage(''), 4000);
+    } catch (err) {
+      console.error('Error deleting group:', err);
     }
   };
 

@@ -23,6 +23,7 @@ export async function exportElementToPdf({
     useCORS: true,
     logging: false,
     backgroundColor: '#ffffff',
+    windowWidth: 1200,
     onclone: (clonedDoc: Document) => {
       // 1. Sanitize all <style> elements in cloned document
       const styleTags = clonedDoc.querySelectorAll('style');

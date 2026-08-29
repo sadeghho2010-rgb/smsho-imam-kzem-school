@@ -210,7 +210,6 @@ export default function ManagerFiles() {
 
   // Delete file
   const handleDeleteFile = async (fileId: string, title: string) => {
-    if (!window.confirm(`آیا از حذف فایل «${title}» مطمئن هستید؟`)) return;
     try {
       await deleteManagerFile(fileId);
       setStatusMessage({
