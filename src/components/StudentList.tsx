@@ -23,11 +23,16 @@ import {
   CheckCheck,
   RefreshCw,
   CopyCheck,
-  Users
+  Users,
+  Phone,
+  Heart,
+  Home,
+  MapPin,
+  BookOpen
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { localDb, isStudentActive, DuplicateGroup, MergeResult } from '../lib/localDb';
-import { Student } from '../types';
+import { Student, Program, Enrollment } from '../types';
 import { useMentor } from '../context/MentorContext';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -48,8 +53,11 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
     setShahpooriFilter 
   } = useMentor();
   const [students, setStudents] = useState<Student[]>([]);
+  const [programs, setPrograms] = useState<Program[]>([]);
+  const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [viewingStudentSummary, setViewingStudentSummary] = useState<Student | null>(null);
 
   useEffect(() => {
     if (initialStudentId && students.length > 0) {
@@ -179,6 +187,9 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
     setLoading(true);
     try {
       const allData = await localDb.getDocs<Student>('students');
+      const allProgs = await localDb.getDocs<Program>('programs');
+      const allEnrollments = await localDb.getDocs<Enrollment>('enrollments');
+
       const data = onlyActive ? allData.filter(s => isStudentActive(s)) : allData;
       
       // Sort by grade (numerically if possible)
@@ -189,6 +200,8 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
       });
       
       setStudents(sortedData);
+      setPrograms(allProgs);
+      setEnrollments(allEnrollments);
     } catch (error) {
       console.error("Error fetching students:", error);
     } finally {
@@ -879,7 +892,12 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
               </tr>
             ) : (
               filteredStudents.map((student, index) => (
-                <tr key={student.id} className="hover:bg-slate-50/50 transition-colors">
+                <tr 
+                  key={student.id} 
+                  onClick={() => setViewingStudentSummary(student)}
+                  className="hover:bg-slate-50/80 transition-colors cursor-pointer"
+                  title="برای مشاهده خلاصه اطلاعات طلبه کلیک کنید"
+                >
                   {visibleColumns.includes('index') && (
                     <td className="px-6 py-4 text-xs font-bold text-slate-400">{index + 1}</td>
                   )}
@@ -966,10 +984,13 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
                     <td className="px-6 py-4 text-xs text-slate-600">{student.tammomStatus || '---'}</td>
                   )}
                   {visibleColumns.includes('isActive') && (
-                    <td className="px-6 py-4">
+                    <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
                       <button 
                         type="button"
-                        onClick={() => toggleActive(student.id, student.isActive)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleActive(student.id, student.isActive);
+                        }}
                         className={cn(
                           "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer",
                           isStudentActive(student.isActive) 
@@ -984,16 +1005,23 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
                     </td>
                   )}
                   {visibleColumns.includes('actions') && (
-                    <td className="px-6 py-4 text-left">
+                    <td className="px-6 py-4 text-left" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-1">
                         <button 
-                          onClick={() => handleEdit(student)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleEdit(student);
+                          }}
                           className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                          title="ویرایش اطلاعات"
                         >
                           <Edit2 size={14} />
                         </button>
                         <button 
-                          onClick={() => deleteStudent(student)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteStudent(student);
+                          }}
                           className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
                           title="حذف کاربر"
                         >
@@ -1617,6 +1645,176 @@ export default function StudentList({ onlyActive = false, initialStudentId }: St
                   </div>
                 </div>
               )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Student Read-Only Summary Card Overlay Modal */}
+      <AnimatePresence>
+        {viewingStudentSummary && (
+          <div 
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto"
+            onClick={() => setViewingStudentSummary(null)}
+          >
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ duration: 0.2 }}
+              onClick={(e) => e.stopPropagation()}
+              className="max-w-xl w-full space-y-4 my-auto"
+              dir="rtl"
+            >
+              {/* Box 1: Student Primary Summary Info */}
+              <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-2xl relative overflow-hidden">
+                <div className="flex items-start justify-between mb-5 border-b border-slate-100 pb-4">
+                  <div className="flex items-center gap-4">
+                    {viewingStudentSummary.photoUrl ? (
+                      <img 
+                        src={viewingStudentSummary.photoUrl} 
+                        alt={viewingStudentSummary.name} 
+                        className="w-16 h-16 rounded-2xl object-cover border-2 border-indigo-200 shadow-md shrink-0" 
+                      />
+                    ) : (
+                      <div className="w-16 h-16 rounded-2xl bg-indigo-50 border-2 border-indigo-100 flex items-center justify-center shrink-0 text-indigo-400 shadow-inner">
+                        <User size={32} />
+                      </div>
+                    )}
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="text-lg font-black text-slate-800 leading-tight">
+                          {viewingStudentSummary.name}
+                        </h3>
+                        <span className="px-2.5 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 text-[11px] font-bold rounded-full">
+                          {viewingStudentSummary.grade || 'نامشخص'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1">اطلاعات پرونده طلبه (بدون امکان ویرایش)</p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setViewingStudentSummary(null)}
+                    className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+                    title="بستن"
+                  >
+                    <XCircle size={22} />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  {/* Photo & Name */}
+                  <div className="bg-slate-50/80 p-3 rounded-xl border border-slate-100 flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+                      <User size={16} />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 block">نام و نام خانوادگی</span>
+                      <span className="font-bold text-slate-800">{viewingStudentSummary.name}</span>
+                    </div>
+                  </div>
+
+                  {/* Phone */}
+                  <div className="bg-slate-50/80 p-3 rounded-xl border border-slate-100 flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                      <Phone size={16} />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 block">شماره همراه</span>
+                      <span className="font-bold text-slate-800">{viewingStudentSummary.phoneNumber || 'ثبت نشده'}</span>
+                    </div>
+                  </div>
+
+                  {/* Marital Status */}
+                  <div className="bg-slate-50/80 p-3 rounded-xl border border-slate-100 flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                      <Heart size={16} />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 block">وضعیت تاهل</span>
+                      <span className="font-bold text-slate-800">
+                        {viewingStudentSummary.maritalStatus || 'نامشخص'}
+                        {viewingStudentSummary.maritalStatus === 'متاهل' && viewingStudentSummary.childrenCount !== undefined && viewingStudentSummary.childrenCount > 0 ? ` (${viewingStudentSummary.childrenCount} فرزند)` : ''}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Living Status */}
+                  <div className="bg-slate-50/80 p-3 rounded-xl border border-slate-100 flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center shrink-0">
+                      <Home size={16} />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 block">وضعیت سکونت</span>
+                      <span className="font-bold text-slate-800">
+                        {viewingStudentSummary.livingStatus || 'نامشخص'}
+                        {viewingStudentSummary.livingStatus === 'سایر' && viewingStudentSummary.livingStatusOther ? ` (${viewingStudentSummary.livingStatusOther})` : ''}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Hometown / Birthplace */}
+                  <div className="bg-slate-50/80 p-3 rounded-xl border border-slate-100 flex items-center gap-3 sm:col-span-2">
+                    <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center shrink-0">
+                      <MapPin size={16} />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 block">اهل کجاست</span>
+                      <span className="font-bold text-slate-800">{viewingStudentSummary.birthPlace || 'ثبت نشده'}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Box 2: Enrolled Lessons / Courses */}
+              <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-2xl">
+                <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-5 bg-indigo-600 rounded-full"></div>
+                    <h4 className="text-sm font-bold text-slate-800">درس‌هایی که شرکت می‌کند</h4>
+                  </div>
+                  {(() => {
+                    const enrolledProgs = programs.filter(p => enrollments.some(e => e.studentId === viewingStudentSummary.id && e.programId === p.id));
+                    return (
+                      <span className="px-2.5 py-0.5 bg-slate-100 text-slate-600 border border-slate-200 text-[11px] font-bold rounded-full">
+                        {enrolledProgs.length} درس ثبت‌شده
+                      </span>
+                    );
+                  })()}
+                </div>
+
+                {(() => {
+                  const enrolledProgs = programs.filter(p => enrollments.some(e => e.studentId === viewingStudentSummary.id && e.programId === p.id));
+                  if (enrolledProgs.length === 0) {
+                    return (
+                      <div className="p-6 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-center text-slate-400 text-xs italic">
+                        هیچ درسی برای این طلبه ثبت نشده است.
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-48 overflow-y-auto pr-1">
+                      {enrolledProgs.map(p => (
+                        <div key={p.id} className="p-3 bg-slate-50 hover:bg-slate-100/80 border border-slate-200/80 rounded-xl transition-colors space-y-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-bold text-slate-800 text-xs">{p.title}</span>
+                            <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-[9px] font-bold rounded-md shrink-0">
+                              {p.type || 'اصلی'}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-3 text-[10px] text-slate-500 flex-wrap">
+                            {p.teacher && <span>استاد: {p.teacher}</span>}
+                            {(p.day || p.time) && <span>{p.day} {p.time}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
             </motion.div>
           </div>
         )}
