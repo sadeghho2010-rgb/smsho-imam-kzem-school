@@ -97,7 +97,10 @@ export const COLLECTIONS = [
   'settings',
   'cloud_backups',
   'manager_files',
-  'discussion_groups'
+  'discussion_groups',
+  'academic_calendar_periods',
+  'academic_holidays',
+  'academic_holiday_types'
 ] as const;
 
 export type CollectionName = typeof COLLECTIONS[number] | string;
@@ -352,6 +355,11 @@ class LocalDatabase {
         resolve((lsDocs as any[]).find(x => x.id === id) || null);
       }
     });
+  }
+
+  // Alias for addDoc / setDoc
+  async setDoc(collectionName: CollectionName, data: any): Promise<string> {
+    return this.addDoc(collectionName, data);
   }
 
   // Add a new document (auto assigns ID if missing)

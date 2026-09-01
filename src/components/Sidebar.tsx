@@ -2,6 +2,7 @@ import React from 'react';
 import { 
   Users, 
   Calendar, 
+  CalendarDays,
   BookOpen, 
   MessageSquare, 
   CheckSquare, 
@@ -26,6 +27,7 @@ interface SidebarProps {
 
 const baseMenuItems = [
   { id: 'todos', label: 'پیگیری‌ها', icon: GraduationCap },
+  { id: 'academic-calendar', label: 'تقویم آموزشی', icon: CalendarDays },
   { id: 'students', label: 'همه کاربران', icon: Users },
   { id: 'active-students', label: 'کاربران فعال', icon: UserCheck },
   { id: 'discussion', label: 'بخش مباحثه', icon: Users },

@@ -192,3 +192,50 @@ export interface DiscussionGroup {
   createdAt: string;
   updatedAt?: string;
 }
+
+// Academic Calendar Types
+export interface AcademicCalendarPeriod {
+  id: string;
+  title: string; // e.g., "سال تحصیلی ۱۴۰۵-۱۴۰۶"
+  startDate: string; // Shamsi YYYY/MM/DD e.g. "1405/06/15"
+  endDate: string; // Shamsi YYYY/MM/DD e.g. "1406/03/20"
+  description?: string;
+  includeThursdayAsStudyDay: boolean;
+  includeFridayAsStudyDay: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface AcademicHolidayType {
+  id: string;
+  name: string; // e.g. "تعطیلی رسمی", "تعطیلی مناسبتی", "تعطیلی تبلیغی"
+  color: string; // Hex or Tailwind color token
+  isSystemDefault?: boolean;
+}
+
+export interface AcademicHolidayItem {
+  id: string;
+  periodId: string;
+  title: string;
+  typeId: string;
+  typeName: string;
+  startDate: string; // Shamsi YYYY/MM/DD
+  endDate: string; // Shamsi YYYY/MM/DD
+  description?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface AcademicCalendarExportPackage {
+  _meta: {
+    system: 'TOLAB_ACADEMIC_CALENDAR';
+    version: string;
+    exportDate: string;
+    totalPeriods: number;
+    totalHolidays: number;
+    totalHolidayTypes: number;
+  };
+  periods: AcademicCalendarPeriod[];
+  holidays: AcademicHolidayItem[];
+  holidayTypes: AcademicHolidayType[];
+}
