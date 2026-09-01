@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Calendar as CalendarIcon, 
   Plus, 
@@ -20,7 +20,9 @@ import {
   Layers,
   Check,
   Tag,
-  BookOpen
+  BookOpen,
+  FileText,
+  Eye
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
@@ -102,6 +104,30 @@ export default function AcademicCalendar() {
   const [showImportExportModal, setShowImportExportModal] = useState(false);
   const [importJsonText, setImportJsonText] = useState('');
   const [toastMessage, setToastMessage] = useState('');
+
+  // PDF Preview & Export State
+  const pdfTemplateRef = useRef<HTMLDivElement>(null);
+  const [showPdfPreviewModal, setShowPdfPreviewModal] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
+  const handleExportHolidaysPdf = async () => {
+    if (!pdfTemplateRef.current) return;
+    setIsGeneratingPdf(true);
+    try {
+      await exportElementToPdf({
+        element: pdfTemplateRef.current,
+        filename: `جدول_تعطیلات_${selectedPeriod?.title ? selectedPeriod.title.replace(/\s+/g, '_') : 'دوره'}_${getTodayShamsi().replace(/\//g, '-')}.pdf`,
+        orientation: 'landscape',
+        marginMM: 8
+      });
+      showToast("فایل PDF جدول تعطیلات با موفقیت تولید و دانلود شد.");
+    } catch (err) {
+      console.error("PDF Export Error:", err);
+      alert("خطا در تولید فایل PDF. لطفا مجددا تلاش کنید.");
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
 
   // Form States for Period Modal
   const [periodForm, setPeriodForm] = useState({
@@ -802,6 +828,15 @@ export default function AcademicCalendar() {
               <Download size={15} />
               <span>خروجی / ورودی</span>
             </button>
+
+            <button
+              onClick={() => setShowPdfPreviewModal(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0 border border-rose-400/30"
+              title="خروجی PDF جدول تعطیلات"
+            >
+              <FileText size={15} />
+              <span>خروجی PDF تعطیلات</span>
+            </button>
           </div>
         </div>
 
@@ -1162,13 +1197,23 @@ export default function AcademicCalendar() {
               <p className="text-xs text-slate-400">ثبت تعطیلات مناسبتی، تبلیغی، رسمی و حوزوی مربوط به دوره انتخاب‌شده</p>
             </div>
 
-            <button
-              onClick={() => handleOpenAddHoliday()}
-              className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all"
-            >
-              <Plus size={16} />
-              <span>افزودن تعطیلی جدید</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowPdfPreviewModal(true)}
+                className="flex items-center gap-1.5 px-3.5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all"
+              >
+                <FileText size={16} />
+                <span>خروجی PDF جدول تعطیلات</span>
+              </button>
+
+              <button
+                onClick={() => handleOpenAddHoliday()}
+                className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all"
+              >
+                <Plus size={16} />
+                <span>افزودن تعطیلی جدید</span>
+              </button>
+            </div>
           </div>
 
           {periodHolidays.length === 0 ? (
@@ -1284,8 +1329,16 @@ export default function AcademicCalendar() {
                 <p className="text-xs text-slate-400">مشاهده همزمان همه تعطیلات یا فیلتر کردن بر اساس نوع مشخص (مناسبتی، تبلیغی و...)</p>
               </div>
 
-              {/* Filter Pills */}
-              <div className="flex items-center gap-1.5 flex-wrap">
+              {/* Filter Pills & PDF Button */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => setShowPdfPreviewModal(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition-all shadow-xs shrink-0"
+                >
+                  <FileText size={15} />
+                  <span>دانلود PDF تعطیلات</span>
+                </button>
+
                 <button
                   onClick={() => setSelectedCategoryFilter('all')}
                   className={cn(
@@ -1840,6 +1893,210 @@ export default function AcademicCalendar() {
                   >
                     جایگزینی کامل دیتای تقویم
                   </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* --- MODAL 5: HOLIDAYS PDF PREVIEW & EXPORT MODAL --- */}
+      <AnimatePresence>
+        {showPdfPreviewModal && (
+          <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-slate-100 rounded-3xl p-6 max-w-5xl w-full border border-slate-300 shadow-2xl space-y-5 max-h-[92vh] flex flex-col my-auto"
+              dir="rtl"
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between border-b border-slate-200 pb-3 bg-white -mx-6 -mt-6 p-6 rounded-t-3xl">
+                <div>
+                  <h3 className="text-base font-black text-slate-800 flex items-center gap-2">
+                    <FileText className="text-rose-600" size={20} />
+                    <span>پیش‌نمایش سند PDF رسمی جدول تعطیلات</span>
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    فرمت مرتب، رسمی و شکیل جهت چاپ یا خروجی فایل PDF
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => window.print()}
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors"
+                  >
+                    <Printer size={15} />
+                    <span>چاپ مرورگر</span>
+                  </button>
+
+                  <button
+                    onClick={handleExportHolidaysPdf}
+                    disabled={isGeneratingPdf}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-400 text-white text-xs font-bold rounded-xl shadow-md transition-all"
+                  >
+                    {isGeneratingPdf ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        <span>در حال تولید PDF...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Download size={15} />
+                        <span>دانلود فایل PDF</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => setShowPdfPreviewModal(false)}
+                    className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl transition-colors"
+                  >
+                    <XCircle size={22} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Printable Document Container Scrollable Preview */}
+              <div className="overflow-y-auto flex-1 p-2 bg-slate-200/60 rounded-2xl border border-slate-300/60">
+                <div 
+                  ref={pdfTemplateRef}
+                  className="bg-white p-8 text-slate-800 space-y-6 rounded-xl shadow-md mx-auto print:shadow-none print:p-0"
+                  style={{ width: '980px', backgroundColor: '#ffffff' }}
+                >
+                  {/* Document Header */}
+                  <div className="border-b-2 border-slate-900 pb-4 flex items-center justify-between">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 text-indigo-900 font-black text-sm">
+                        <BookOpen size={18} className="text-indigo-700" />
+                        <span>حوزه علمیه — معاونت آموزش و برنامه‌ریزی تحصیلی</span>
+                      </div>
+                      <h2 className="text-xl font-black text-slate-900">جدول جامع تعطیلات سالنامه آموزشی</h2>
+                      <div className="text-xs font-bold text-slate-700">
+                        عنوان دوره: <span className="text-indigo-900 font-black">{selectedPeriod?.title || '---'}</span>
+                      </div>
+                    </div>
+
+                    <div className="text-left space-y-1 text-[11px] font-bold text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                      <div>بازه زمانی دوره: <span className="text-slate-900 font-black">{selectedPeriod?.startDate} الی {selectedPeriod?.endDate}</span></div>
+                      <div>تاریخ صدور گزارش: <span className="text-slate-900 font-black">{getTodayShamsi()}</span></div>
+                      <div>وضعیت ۵شنبه‌ها: <span className="text-slate-900 font-black">{selectedPeriod?.includeThursdayAsStudyDay ? 'روز درسی' : 'تعطیل آخر هفته'}</span></div>
+                    </div>
+                  </div>
+
+                  {/* Summary Metric Strip */}
+                  <div className="grid grid-cols-4 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-center text-xs">
+                    <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                      <span className="text-[10px] text-slate-500 font-bold block">مجموع روزهای دوره</span>
+                      <span className="text-sm font-black text-slate-900">{dateAnalysis.totalDays} روز</span>
+                    </div>
+
+                    <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                      <span className="text-[10px] text-slate-500 font-bold block">تعداد عناوین تعطیلی</span>
+                      <span className="text-sm font-black text-rose-700">{periodHolidays.length} عنوان</span>
+                    </div>
+
+                    <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                      <span className="text-[10px] text-slate-500 font-bold block">مجموع ایام تعطیل دوره</span>
+                      <span className="text-sm font-black text-rose-800">{dateAnalysis.holidayDaysCount} روز</span>
+                    </div>
+
+                    <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                      <span className="text-[10px] text-slate-500 font-bold block">تعداد روزهای درسی فعال</span>
+                      <span className="text-sm font-black text-emerald-700">{dateAnalysis.studyDays} روز</span>
+                    </div>
+                  </div>
+
+                  {/* Holidays Table */}
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-black text-slate-800 border-r-4 border-indigo-600 pr-2">
+                      جدول تفصیلی کلیه تعطیلات ثبت‌شده در سالنامه
+                    </h4>
+
+                    {periodHolidays.length === 0 ? (
+                      <div className="p-8 text-center text-slate-400 font-bold text-xs bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                        هیچ تعطیلی مشخصی برای این دوره ثبت نشده است.
+                      </div>
+                    ) : (
+                      <table className="w-full text-right border-collapse border border-slate-300 text-xs">
+                        <thead>
+                          <tr className="bg-slate-900 text-white font-black">
+                            <th className="p-2 border border-slate-700 text-center w-10">ردیف</th>
+                            <th className="p-2 border border-slate-700">عنوان تعطیلی</th>
+                            <th className="p-2 border border-slate-700 w-28">نوع تعطیلی</th>
+                            <th className="p-2 border border-slate-700 text-center w-24">تاریخ شروع</th>
+                            <th className="p-2 border border-slate-700 text-center w-24">تاریخ پایان</th>
+                            <th className="p-2 border border-slate-700 text-center w-32">ایام هفته</th>
+                            <th className="p-2 border border-slate-700 text-center w-16">مدت</th>
+                            <th className="p-2 border border-slate-700">توضیحات و ملاحظات</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200">
+                          {periodHolidays.map((h, i) => {
+                            const daysCount = generateShamsiDateRange(h.startDate, h.endDate || h.startDate).length;
+                            const typeObj = holidayTypes.find(t => t.id === h.typeId || t.name === h.typeName);
+                            const colorConfig = typeObj ? (COLOR_MAP[typeObj.color] || COLOR_MAP.rose) : COLOR_MAP.rose;
+
+                            return (
+                              <tr key={h.id} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                                <td className="p-2 border border-slate-200 text-center font-bold text-slate-500">{i + 1}</td>
+                                <td className="p-2 border border-slate-200 font-black text-slate-900">{h.title}</td>
+                                <td className="p-2 border border-slate-200">
+                                  <span className={cn("px-2 py-0.5 rounded text-[10px] font-bold border inline-block", colorConfig.bg, colorConfig.text, colorConfig.border)}>
+                                    {h.typeName}
+                                  </span>
+                                </td>
+                                <td className="p-2 border border-slate-200 text-center font-bold text-slate-800">{h.startDate}</td>
+                                <td className="p-2 border border-slate-200 text-center font-bold text-slate-800">{h.endDate || h.startDate}</td>
+                                <td className="p-2 border border-slate-200 text-center font-bold text-slate-700">
+                                  {getShamsiDayOfWeekName(h.startDate)} تا {getShamsiDayOfWeekName(h.endDate || h.startDate)}
+                                </td>
+                                <td className="p-2 border border-slate-200 text-center font-black text-indigo-900">{daysCount} روز</td>
+                                <td className="p-2 border border-slate-200 text-slate-600 text-[11px]">{h.description || '—'}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+
+                  {/* Types Breakdown Bar */}
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1.5 text-xs">
+                    <span className="font-black text-slate-800 block">تفکیک روزهای تعطیلی به نسبت دسته‌بندی:</span>
+                    <div className="flex flex-wrap gap-2 text-[11px]">
+                      {holidayTypes.map(type => {
+                        const count = dateAnalysis.typeBreakdown[type.name] || 0;
+                        if (count === 0) return null;
+                        return (
+                          <div key={type.id} className="bg-white px-2.5 py-1 rounded-lg border border-slate-200 font-bold flex items-center gap-1">
+                            <span className="text-slate-600">{type.name}:</span>
+                            <span className="text-indigo-900 font-black">{count} روز</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Signatures & Seal */}
+                  <div className="pt-6 border-t border-slate-200 grid grid-cols-2 gap-8 text-center text-xs font-bold text-slate-700">
+                    <div className="space-y-6">
+                      <div>واحد برنامه‌ریزی و تقویم آموزشی</div>
+                      <div className="text-slate-400 font-normal">امضا و تاریخ: ...........................................</div>
+                    </div>
+
+                    <div className="space-y-6">
+                      <div>مدیریت و معاونت آموزش حوزه</div>
+                      <div className="text-slate-400 font-normal">محل مهر و امضاء: ...........................................</div>
+                    </div>
+                  </div>
+
+                  {/* Footer note */}
+                  <div className="text-center text-[9px] text-slate-400 pt-2 border-t border-slate-100">
+                    این فایل به عنوان سند رسمی سالنامه و تقویم آموزشی صادره از سیستم نرم‌افزاری ارائه گردیده است.
+                  </div>
                 </div>
               </div>
             </motion.div>
