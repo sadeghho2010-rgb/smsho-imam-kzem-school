@@ -100,7 +100,8 @@ export const COLLECTIONS = [
   'discussion_groups',
   'academic_calendar_periods',
   'academic_holidays',
-  'academic_holiday_types'
+  'academic_holiday_types',
+  'academic_sub_periods'
 ] as const;
 
 export type CollectionName = typeof COLLECTIONS[number] | string;
@@ -183,7 +184,7 @@ export const MENTOR_META: Record<string, { id: string; name: string; role: strin
   hosseini: { id: 'hosseini', name: 'استاد حسینی', role: 'مسئول پایه ۸', gradeLabel: 'پایه ۸' },
   soleimani: { id: 'soleimani', name: 'استاد سلیمانی', role: 'مسئول پایه ۹', gradeLabel: 'پایه ۹' },
   asadi: { id: 'asadi', name: 'استاد اسدی', role: 'مسئول پایه ۱۰', gradeLabel: 'پایه ۱۰' },
-  shahpoori: { id: 'shahpoori', name: 'استاد شاهپوری', role: 'مدیر اصلی', gradeLabel: 'کل پایه‌ها' },
+  shahpoori: { id: 'shahpoori', name: 'مدیریت', role: 'مدیر اصلی', gradeLabel: 'کل پایه‌ها' },
 };
 
 class LocalDatabase {
@@ -652,7 +653,7 @@ class LocalDatabase {
   async exportMentorBackup(mentorId: string): Promise<MentorBackupPackage> {
     const meta = MENTOR_META[mentorId] || {
       id: mentorId,
-      name: mentorId === 'shahpoori' ? 'استاد شاهپوری' : `استاد ${mentorId}`,
+      name: mentorId === 'shahpoori' ? 'مدیریت' : `استاد ${mentorId}`,
       role: 'مسئول پایه',
       gradeLabel: 'پایه مربوطه'
     };

@@ -240,7 +240,7 @@ export async function fetchCloudBackups(
               if (f === 'hayati') { mentorName = 'استاد حیاتی'; mentorId = 'hayati'; }
               if (f === 'soleymani') { mentorName = 'استاد سلیمانی'; mentorId = 'soleimani'; }
               if (f === 'asadi') { mentorName = 'استاد اسدی'; mentorId = 'asadi'; }
-              if (f === 'boss') { mentorName = 'استاد شاهپوری (مدیر)'; mentorId = 'shahpoori'; }
+              if (f === 'boss') { mentorName = 'مدیریت'; mentorId = 'shahpoori'; }
 
               const created = fileObj.created_at || new Date().toISOString();
               const persianDt = getPersianDateTime(new Date(created));

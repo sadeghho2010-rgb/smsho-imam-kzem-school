@@ -174,7 +174,7 @@ function AppContent() {
             <div className="bg-amber-50/60 border-t border-amber-100/80 px-4 sm:px-6 py-2 flex items-center justify-between flex-wrap gap-2 text-xs">
               <div className="flex items-center gap-1.5 font-bold text-amber-900">
                 <ShieldCheck size={16} className="text-amber-600 shrink-0" />
-                <span>مدیریت ارشد (استاد شاهپوری):</span>
+                <span>مدیریت ارشد:</span>
                 <span className="text-slate-500 font-normal hidden md:inline">انتخاب دسته طلاب فعال برای بررسی:</span>
               </div>
               

@@ -57,7 +57,7 @@ export async function uploadManagerFile(
     fileSizeFormatted: formatBytes(fileInput.fileSizeBytes),
     createdAt: now.toISOString(),
     persianDate: getPersianDateTime(now),
-    senderName: fileInput.senderName || 'استاد شاهپوری (مدیر)'
+    senderName: fileInput.senderName || 'مدیریت'
   };
 
   // 1. Try saving to Firestore

@@ -710,7 +710,7 @@ export default function BackupAndRestore() {
     },
     {
       id: 'shahpoori',
-      name: 'استاد شاهپوری',
+      name: 'مدیریت',
       role: 'مدیر اصلی',
       gradeLabel: 'کل پایه‌ها',
       avatarBg: 'bg-amber-600',
@@ -920,7 +920,7 @@ export default function BackupAndRestore() {
                 <option value="hayati">استاد حیاتی (پایه ۷)</option>
                 <option value="hosseini">استاد حسینی (پایه ۸)</option>
                 <option value="soleimani">استاد سلیمانی (پایه ۹)</option>
-                <option value="shahpoori">استاد شاهپوری (مدیر کل)</option>
+                <option value="shahpoori">مدیریت (مدیر کل)</option>
               </select>
             </div>
           ) : (

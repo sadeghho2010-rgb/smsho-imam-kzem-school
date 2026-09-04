@@ -65,7 +65,7 @@ export const MENTORS: Record<MentorId, MentorInfo> = {
   },
   shahpoori: {
     id: 'shahpoori',
-    name: 'استاد شاهپوری',
+    name: 'مدیریت',
     role: 'مدیر اصلی',
     gradeLabel: 'کل پایه‌ها',
     avatarBg: 'bg-amber-600',

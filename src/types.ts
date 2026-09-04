@@ -194,13 +194,24 @@ export interface DiscussionGroup {
 }
 
 // Academic Calendar Types
+export type ThursdayMode = 'special_program' | 'main_class' | 'off';
+
+export interface ThursdayOverride {
+  dateStr: string; // Shamsi YYYY/MM/DD
+  mode: ThursdayMode; // 'special_program' | 'main_class' | 'off'
+  title?: string; // Optional custom name e.g. "برنامه ویژه اخلاق", "تدریس جبرانی اصول"
+  description?: string;
+}
+
 export interface AcademicCalendarPeriod {
   id: string;
   title: string; // e.g., "سال تحصیلی ۱۴۰۵-۱۴۰۶"
   startDate: string; // Shamsi YYYY/MM/DD e.g. "1405/06/15"
   endDate: string; // Shamsi YYYY/MM/DD e.g. "1406/03/20"
   description?: string;
-  includeThursdayAsStudyDay: boolean;
+  includeThursdayAsStudyDay: boolean; // kept for compatibility
+  defaultThursdayMode?: ThursdayMode; // 'special_program' | 'main_class' | 'off'
+  thursdayOverrides?: Record<string, ThursdayOverride>; // map dateStr -> ThursdayOverride
   includeFridayAsStudyDay: boolean;
   createdAt: string;
   updatedAt?: string;
@@ -226,6 +237,20 @@ export interface AcademicHolidayItem {
   updatedAt?: string;
 }
 
+export interface AcademicSubPeriod {
+  id: string;
+  periodId: string;
+  title: string; // e.g. "هفته پژوهش", "دوره مهارتی و کارگاه‌ها"
+  startDate: string; // Shamsi YYYY/MM/DD
+  endDate: string; // Shamsi YYYY/MM/DD
+  isAcademicPresence: boolean; // آیا حضور تحصیلی محسوب می‌شود؟ (default: true)
+  isStandardClassDay: boolean; // آیا کلاس درس اصلی سرفصل برگزار می‌شود؟ (default: false)
+  description?: string;
+  color?: string; // e.g. "violet", "purple", "indigo", "amber", "sky"
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface AcademicCalendarExportPackage {
   _meta: {
     system: 'TOLAB_ACADEMIC_CALENDAR';
@@ -234,8 +259,10 @@ export interface AcademicCalendarExportPackage {
     totalPeriods: number;
     totalHolidays: number;
     totalHolidayTypes: number;
+    totalSubPeriods?: number;
   };
   periods: AcademicCalendarPeriod[];
   holidays: AcademicHolidayItem[];
   holidayTypes: AcademicHolidayType[];
+  subPeriods?: AcademicSubPeriod[];
 }
