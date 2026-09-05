@@ -836,7 +836,7 @@ export default function BackupAndRestore() {
                 <span className="text-indigo-600 font-mono text-[11px]">پشتیبان_{currentMentor.name.replace(/\s+/g, '_')}_[تاریخ].json</span>
               </div>
               <p className="text-[11px] text-slate-500">
-                این فایل شامل تمامی طلاب، عکس‌های پایه مربوطه، سوابق پژوهش، ساعات مطالعه، نظرات و امتحانات مربوط به {currentMentor.name} می‌باشد.
+                این فایل شامل تمامی دیتای طلاب، مباحثات و گروه های گفتگو، پیگیری‌ها و یادداشت‌ها، سوابق پژوهش، ساعات مطالعه و مباحثه، امتحانات و تقویم تحصیلی مربوط به {currentMentor.name} می‌باشد.
               </p>
             </div>
           </div>
@@ -1237,6 +1237,10 @@ export default function BackupAndRestore() {
           <div className="flex flex-wrap items-center gap-3 text-slate-500">
             <span>آمار رکوردهای محلی:</span>
             <span className="font-bold text-slate-800">{stats.collectionCounts.students || 0} طلبه</span>
+            <span>•</span>
+            <span className="font-bold text-slate-800">{stats.collectionCounts.discussion_groups || 0} گروه مباحثه</span>
+            <span>•</span>
+            <span className="font-bold text-slate-800">{stats.collectionCounts.todos || 0} پیگیری</span>
             <span>•</span>
             <span className="font-bold text-slate-800">{stats.collectionCounts.research || 0} پژوهش</span>
             <span>•</span>

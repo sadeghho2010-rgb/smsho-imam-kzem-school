@@ -26,6 +26,10 @@ export interface FullBackupPackage {
   programs: any[];
   enrollments: any[];
   research: any[];
+  research_records?: any[];
+  research_history?: any[];
+  research_skills_def?: any[];
+  student_research_skills?: any[];
   conversation_archives: any[];
   attendance: any[];
   study_stats: any[];
@@ -34,6 +38,13 @@ export interface FullBackupPackage {
   todos: any[];
   student_comments: any[];
   oral_exams: any[];
+  discussion_groups?: any[];
+  academic_calendar_periods?: any[];
+  academic_holidays?: any[];
+  academic_holiday_types?: any[];
+  academic_sub_periods?: any[];
+  manager_files?: any[];
+  settings?: any[];
 }
 
 export interface MentorBackupPackage {
@@ -48,6 +59,10 @@ export interface MentorBackupPackage {
   programs: any[];
   enrollments: any[];
   research: any[];
+  research_records?: any[];
+  research_history?: any[];
+  research_skills_def?: any[];
+  student_research_skills?: any[];
   conversation_archives: any[];
   attendance: any[];
   study_stats: any[];
@@ -56,12 +71,22 @@ export interface MentorBackupPackage {
   todos: any[];
   student_comments: any[];
   oral_exams: any[];
+  discussion_groups?: any[];
+  academic_calendar_periods?: any[];
+  academic_holidays?: any[];
+  academic_holiday_types?: any[];
+  academic_sub_periods?: any[];
+  manager_files?: any[];
+  settings?: any[];
 }
 
 export interface StudentBackupPackage {
   _meta: BackupMetadata;
   student: any;
   research: any[];
+  research_records?: any[];
+  research_history?: any[];
+  student_research_skills?: any[];
   conversation_archives: any[];
   attendance: any[];
   study_stats: any[];
@@ -72,6 +97,11 @@ export interface StudentBackupPackage {
   enrollments: any[];
   programs: any[];
   todos: any[];
+  discussion_groups?: any[];
+  academic_calendar_periods?: any[];
+  academic_holidays?: any[];
+  academic_holiday_types?: any[];
+  academic_sub_periods?: any[];
 }
 
 const DB_NAME = 'TOLAB_OFFLINE_LOCAL_DB';
@@ -583,6 +613,10 @@ class LocalDatabase {
       programs,
       enrollments,
       research,
+      research_records,
+      research_history,
+      research_skills_def,
+      student_research_skills,
       conversation_archives,
       attendance,
       study_stats,
@@ -590,12 +624,23 @@ class LocalDatabase {
       periodic_study_logs,
       todos,
       student_comments,
-      oral_exams
+      oral_exams,
+      discussion_groups,
+      manager_files,
+      academic_calendar_periods,
+      academic_holidays,
+      academic_holiday_types,
+      academic_sub_periods,
+      settings
     ] = await Promise.all([
       this.getDocs('students'),
       this.getDocs('programs'),
       this.getDocs('enrollments'),
       this.getDocs('research'),
+      this.getDocs('research_records'),
+      this.getDocs('research_history'),
+      this.getDocs('research_skills_def'),
+      this.getDocs('student_research_skills'),
       this.getDocs('conversation_archives'),
       this.getDocs('attendance'),
       this.getDocs('study_stats'),
@@ -603,23 +648,43 @@ class LocalDatabase {
       this.getDocs('periodic_study_logs'),
       this.getDocs('todos'),
       this.getDocs('student_comments'),
-      this.getDocs('oral_exams')
+      this.getDocs('oral_exams'),
+      this.getDocs('discussion_groups'),
+      this.getDocs('manager_files'),
+      this.getDocs('academic_calendar_periods'),
+      this.getDocs('academic_holidays'),
+      this.getDocs('academic_holiday_types'),
+      this.getDocs('academic_sub_periods'),
+      this.getDocs('settings')
     ]);
 
-    const totalRecords =
-      students.length +
-      programs.length +
-      enrollments.length +
-      research.length +
-      conversation_archives.length +
-      attendance.length +
-      study_stats.length +
-      study_periods.length +
-      periodic_study_logs.length +
-      todos.length +
-      student_comments.length +
-      oral_exams.length;
+    const collections = [
+      students,
+      programs,
+      enrollments,
+      research,
+      research_records,
+      research_history,
+      research_skills_def,
+      student_research_skills,
+      conversation_archives,
+      attendance,
+      study_stats,
+      study_periods,
+      periodic_study_logs,
+      todos,
+      student_comments,
+      oral_exams,
+      discussion_groups,
+      manager_files,
+      academic_calendar_periods,
+      academic_holidays,
+      academic_holiday_types,
+      academic_sub_periods,
+      settings
+    ];
 
+    const totalRecords = collections.reduce((acc, colItems) => acc + (colItems ? colItems.length : 0), 0);
     const hasPhotos = students.some((s) => !!s.photoUrl);
 
     const backupPackage: FullBackupPackage = {
@@ -627,7 +692,7 @@ class LocalDatabase {
         version: '2.0.0-offline',
         exportDate: new Date().toISOString(),
         systemName: 'سیستم جامع مدیریت طلاب (آفلاین)',
-        totalCollections: 12,
+        totalCollections: COLLECTIONS.length,
         totalRecords,
         hasPhotos,
         exportType: 'full'
@@ -636,6 +701,10 @@ class LocalDatabase {
       programs,
       enrollments,
       research,
+      research_records,
+      research_history,
+      research_skills_def,
+      student_research_skills,
       conversation_archives,
       attendance,
       study_stats,
@@ -643,7 +712,14 @@ class LocalDatabase {
       periodic_study_logs,
       todos,
       student_comments,
-      oral_exams
+      oral_exams,
+      discussion_groups,
+      manager_files,
+      academic_calendar_periods,
+      academic_holidays,
+      academic_holiday_types,
+      academic_sub_periods,
+      settings
     };
 
     return backupPackage;
@@ -669,6 +745,10 @@ class LocalDatabase {
 
     const [
       allResearch,
+      allResearchRecords,
+      allResearchHistory,
+      allResearchSkillsDef,
+      allStudentResearchSkills,
       allArchives,
       allAttendance,
       allStats,
@@ -678,9 +758,20 @@ class LocalDatabase {
       allExams,
       allEnrollments,
       allPrograms,
-      allTodos
+      allTodos,
+      allDiscussions,
+      allManagerFiles,
+      allAcademicPeriods,
+      allAcademicHolidays,
+      allAcademicHolidayTypes,
+      allAcademicSubPeriods,
+      allSettings
     ] = await Promise.all([
       this.getDocs('research'),
+      this.getDocs('research_records'),
+      this.getDocs('research_history'),
+      this.getDocs('research_skills_def'),
+      this.getDocs('student_research_skills'),
       this.getDocs('conversation_archives'),
       this.getDocs('attendance'),
       this.getDocs('study_stats'),
@@ -690,37 +781,70 @@ class LocalDatabase {
       this.getDocs('oral_exams'),
       this.getDocs('enrollments'),
       this.getDocs('programs'),
-      this.getDocs('todos')
+      this.getDocs('todos'),
+      this.getDocs('discussion_groups'),
+      this.getDocs('manager_files'),
+      this.getDocs('academic_calendar_periods'),
+      this.getDocs('academic_holidays'),
+      this.getDocs('academic_holiday_types'),
+      this.getDocs('academic_sub_periods'),
+      this.getDocs('settings')
     ]);
 
     const mentorResearch = allResearch.filter((r) => studentIds.has(r.studentId));
+    const mentorResearchRecords = allResearchRecords.filter((r) => studentIds.has(r.studentId));
+    const mentorResearchHistory = allResearchHistory.filter((r) => studentIds.has(r.studentId));
+    const mentorStudentResearchSkills = allStudentResearchSkills.filter((s) => studentIds.has(s.studentId));
     const mentorArchives = allArchives.filter((a) => studentIds.has(a.studentId));
     const mentorAttendance = allAttendance.filter((a) => studentIds.has(a.studentId));
     const mentorStats = allStats.filter((s) => studentIds.has(s.studentId));
     const mentorPeriodicLogs = allPeriodicLogs.filter((p) => studentIds.has(p.studentId));
     const relevantPeriodIds = new Set(mentorPeriodicLogs.map((p) => p.periodId));
-    const mentorPeriods = allPeriods.filter((p) => relevantPeriodIds.has(p.id));
+    const mentorPeriods = allPeriods.filter((p) => relevantPeriodIds.has(p.id) || mentorId === 'shahpoori');
     const mentorComments = allComments.filter((c) => studentIds.has(c.studentId));
     const mentorExams = allExams.filter((e) => studentIds.has(e.studentId));
     const mentorEnrollments = allEnrollments.filter((e) => studentIds.has(e.studentId));
     const relevantProgramIds = new Set(mentorEnrollments.map((e) => e.programId));
-    const mentorPrograms = allPrograms.filter((p) => relevantProgramIds.has(p.id));
-    const mentorTodos = allTodos.filter((t) => studentIds.has(t.studentId));
+    const mentorPrograms = allPrograms.filter((p) => relevantProgramIds.has(p.id) || mentorId === 'shahpoori');
+    const mentorTodos = allTodos.filter((t) => mentorId === 'shahpoori' || (t.studentId && studentIds.has(t.studentId)) || t.mentorId === mentorId);
+    const mentorDiscussions = allDiscussions.filter((g) => {
+      if (mentorId === 'shahpoori') return true;
+      if (g.mentorId === mentorId) return true;
+      return Array.isArray(g.memberStudentIds) && g.memberStudentIds.some((sId: string) => studentIds.has(sId));
+    });
+    const mentorManagerFiles = allManagerFiles.filter((f) => {
+      if (mentorId === 'shahpoori') return true;
+      if (f.targetStudentId && studentIds.has(f.targetStudentId)) return true;
+      return f.isPublic !== false;
+    });
 
-    const totalRecords =
-      mentorStudents.length +
-      mentorResearch.length +
-      mentorArchives.length +
-      mentorAttendance.length +
-      mentorStats.length +
-      mentorPeriodicLogs.length +
-      mentorPeriods.length +
-      mentorComments.length +
-      mentorExams.length +
-      mentorEnrollments.length +
-      mentorPrograms.length +
-      mentorTodos.length;
+    const collections = [
+      mentorStudents,
+      mentorResearch,
+      mentorResearchRecords,
+      mentorResearchHistory,
+      allResearchSkillsDef,
+      mentorStudentResearchSkills,
+      mentorArchives,
+      mentorAttendance,
+      mentorStats,
+      mentorPeriodicLogs,
+      mentorPeriods,
+      mentorComments,
+      mentorExams,
+      mentorEnrollments,
+      mentorPrograms,
+      mentorTodos,
+      mentorDiscussions,
+      mentorManagerFiles,
+      allAcademicPeriods,
+      allAcademicHolidays,
+      allAcademicHolidayTypes,
+      allAcademicSubPeriods,
+      allSettings
+    ];
 
+    const totalRecords = collections.reduce((acc, colItems) => acc + (colItems ? colItems.length : 0), 0);
     const hasPhotos = mentorStudents.some((s) => !!s.photoUrl);
 
     const backupPackage: MentorBackupPackage = {
@@ -728,7 +852,7 @@ class LocalDatabase {
         version: '2.0.0-offline',
         exportDate: new Date().toISOString(),
         systemName: 'سیستم جامع مدیریت طلاب (آفلاین)',
-        totalCollections: 12,
+        totalCollections: COLLECTIONS.length,
         totalRecords,
         hasPhotos,
         exportType: 'mentor',
@@ -742,6 +866,10 @@ class LocalDatabase {
       programs: mentorPrograms,
       enrollments: mentorEnrollments,
       research: mentorResearch,
+      research_records: mentorResearchRecords,
+      research_history: mentorResearchHistory,
+      research_skills_def: allResearchSkillsDef,
+      student_research_skills: mentorStudentResearchSkills,
       conversation_archives: mentorArchives,
       attendance: mentorAttendance,
       study_stats: mentorStats,
@@ -749,7 +877,14 @@ class LocalDatabase {
       periodic_study_logs: mentorPeriodicLogs,
       todos: mentorTodos,
       student_comments: mentorComments,
-      oral_exams: mentorExams
+      oral_exams: mentorExams,
+      discussion_groups: mentorDiscussions,
+      manager_files: mentorManagerFiles,
+      academic_calendar_periods: allAcademicPeriods,
+      academic_holidays: allAcademicHolidays,
+      academic_holiday_types: allAcademicHolidayTypes,
+      academic_sub_periods: allAcademicSubPeriods,
+      settings: allSettings
     };
 
     return backupPackage;
@@ -764,6 +899,9 @@ class LocalDatabase {
 
     const [
       allResearch,
+      allResearchRecords,
+      allResearchHistory,
+      allStudentResearchSkills,
       allArchives,
       allAttendance,
       allStats,
@@ -773,9 +911,13 @@ class LocalDatabase {
       allExams,
       allEnrollments,
       allPrograms,
-      allTodos
+      allTodos,
+      allDiscussions
     ] = await Promise.all([
       this.getDocs('research'),
+      this.getDocs('research_records'),
+      this.getDocs('research_history'),
+      this.getDocs('student_research_skills'),
       this.getDocs('conversation_archives'),
       this.getDocs('attendance'),
       this.getDocs('study_stats'),
@@ -785,10 +927,14 @@ class LocalDatabase {
       this.getDocs('oral_exams'),
       this.getDocs('enrollments'),
       this.getDocs('programs'),
-      this.getDocs('todos')
+      this.getDocs('todos'),
+      this.getDocs('discussion_groups')
     ]);
 
     const studentResearch = allResearch.filter((r) => r.studentId === studentId);
+    const studentResearchRecords = allResearchRecords.filter((r) => r.studentId === studentId);
+    const studentResearchHistory = allResearchHistory.filter((r) => r.studentId === studentId);
+    const studentResearchSkills = allStudentResearchSkills.filter((s) => s.studentId === studentId);
     const studentArchives = allArchives.filter((a) => a.studentId === studentId);
     const studentAttendance = allAttendance.filter((a) => a.studentId === studentId);
     const studentStats = allStats.filter((s) => s.studentId === studentId);
@@ -801,27 +947,35 @@ class LocalDatabase {
     const relevantProgramIds = new Set(studentEnrollments.map((e) => e.programId));
     const studentPrograms = allPrograms.filter((p) => relevantProgramIds.has(p.id));
     const studentTodos = allTodos.filter((t) => t.studentId === studentId);
+    const studentDiscussions = allDiscussions.filter((g) => Array.isArray(g.memberStudentIds) && g.memberStudentIds.includes(studentId));
 
-    const totalRecords =
-      1 +
-      studentResearch.length +
-      studentArchives.length +
-      studentAttendance.length +
-      studentStats.length +
-      studentPeriodicLogs.length +
-      studentPeriods.length +
-      studentComments.length +
-      studentExams.length +
-      studentEnrollments.length +
-      studentPrograms.length +
-      studentTodos.length;
+    const collections = [
+      [student],
+      studentResearch,
+      studentResearchRecords,
+      studentResearchHistory,
+      studentResearchSkills,
+      studentArchives,
+      studentAttendance,
+      studentStats,
+      studentPeriodicLogs,
+      studentPeriods,
+      studentComments,
+      studentExams,
+      studentEnrollments,
+      studentPrograms,
+      studentTodos,
+      studentDiscussions
+    ];
+
+    const totalRecords = collections.reduce((acc, colItems) => acc + (colItems ? colItems.length : 0), 0);
 
     const backupPackage: StudentBackupPackage = {
       _meta: {
         version: '2.0.0-offline',
         exportDate: new Date().toISOString(),
         systemName: 'سیستم جامع مدیریت طلاب (آفلاین)',
-        totalCollections: 12,
+        totalCollections: COLLECTIONS.length,
         totalRecords,
         hasPhotos: !!student.photoUrl,
         exportType: 'single_student',
@@ -830,6 +984,9 @@ class LocalDatabase {
       },
       student,
       research: studentResearch,
+      research_records: studentResearchRecords,
+      research_history: studentResearchHistory,
+      student_research_skills: studentResearchSkills,
       conversation_archives: studentArchives,
       attendance: studentAttendance,
       study_stats: studentStats,
@@ -839,7 +996,8 @@ class LocalDatabase {
       oral_exams: studentExams,
       enrollments: studentEnrollments,
       programs: studentPrograms,
-      todos: studentTodos
+      todos: studentTodos,
+      discussion_groups: studentDiscussions
     };
 
     return backupPackage;
@@ -865,6 +1023,10 @@ class LocalDatabase {
       'programs',
       'enrollments',
       'research',
+      'research_records',
+      'research_history',
+      'research_skills_def',
+      'student_research_skills',
       'conversation_archives',
       'attendance',
       'study_stats',
@@ -872,7 +1034,14 @@ class LocalDatabase {
       'periodic_study_logs',
       'todos',
       'student_comments',
-      'oral_exams'
+      'oral_exams',
+      'discussion_groups',
+      'manager_files',
+      'academic_calendar_periods',
+      'academic_holidays',
+      'academic_holiday_types',
+      'academic_sub_periods',
+      'settings'
     ];
 
     for (const col of collectionsToRestore) {
@@ -935,6 +1104,9 @@ class LocalDatabase {
 
       const cols: CollectionName[] = [
         'research',
+        'research_records',
+        'research_history',
+        'student_research_skills',
         'conversation_archives',
         'attendance',
         'study_stats',
@@ -965,6 +1137,10 @@ class LocalDatabase {
       'programs',
       'enrollments',
       'research',
+      'research_records',
+      'research_history',
+      'research_skills_def',
+      'student_research_skills',
       'conversation_archives',
       'attendance',
       'study_stats',
@@ -972,7 +1148,14 @@ class LocalDatabase {
       'periodic_study_logs',
       'todos',
       'student_comments',
-      'oral_exams'
+      'oral_exams',
+      'discussion_groups',
+      'manager_files',
+      'academic_calendar_periods',
+      'academic_holidays',
+      'academic_holiday_types',
+      'academic_sub_periods',
+      'settings'
     ];
 
     for (const key of collectionsToRestore) {
@@ -1052,6 +1235,9 @@ class LocalDatabase {
       // Remove any existing records of this student before importing
       const studentCols: CollectionName[] = [
         'research',
+        'research_records',
+        'research_history',
+        'student_research_skills',
         'conversation_archives',
         'attendance',
         'study_stats',
@@ -1079,6 +1265,9 @@ class LocalDatabase {
     // Restore related arrays
     const subMappings: { key: keyof StudentBackupPackage; col: CollectionName }[] = [
       { key: 'research', col: 'research' },
+      { key: 'research_records', col: 'research_records' },
+      { key: 'research_history', col: 'research_history' },
+      { key: 'student_research_skills', col: 'student_research_skills' },
       { key: 'conversation_archives', col: 'conversation_archives' },
       { key: 'attendance', col: 'attendance' },
       { key: 'study_stats', col: 'study_stats' },
@@ -1088,7 +1277,12 @@ class LocalDatabase {
       { key: 'oral_exams', col: 'oral_exams' },
       { key: 'enrollments', col: 'enrollments' },
       { key: 'programs', col: 'programs' },
-      { key: 'todos', col: 'todos' }
+      { key: 'todos', col: 'todos' },
+      { key: 'discussion_groups', col: 'discussion_groups' },
+      { key: 'academic_calendar_periods', col: 'academic_calendar_periods' },
+      { key: 'academic_holidays', col: 'academic_holidays' },
+      { key: 'academic_holiday_types', col: 'academic_holiday_types' },
+      { key: 'academic_sub_periods', col: 'academic_sub_periods' }
     ];
 
     for (const mapping of subMappings) {
