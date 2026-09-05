@@ -336,6 +336,17 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
       const partnerIds = new Set<string>();
       const externalPartnerNames: string[] = [];
 
+      const groupBreakdown = userGroups.map(g => {
+        const internalNames = studentList.filter(s => g.memberStudentIds?.includes(s.id) && s.id !== studentId).map(s => s.name);
+        const externalNames = g.externalMembers || [];
+        return {
+          id: g.id,
+          title: g.title,
+          subject: g.subject,
+          partners: [...internalNames, ...externalNames]
+        };
+      });
+
       userGroups.forEach(g => {
         g.memberStudentIds?.forEach(id => {
           if (id !== studentId) partnerIds.add(id);
@@ -376,6 +387,7 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
 
       const discussionSummary = {
         groups: userGroups,
+        groupBreakdown,
         partnerNames: allPartnerDisplayNames,
         internalPartnerCount: internalPartnerStudents.length,
         externalPartnerCount: externalPartnerNames.length,
@@ -1326,15 +1338,23 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
                 </div>
 
                 <div className="space-y-3 text-xs">
-                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                    <span className="text-[10px] font-bold text-slate-400 block mb-1">اسامی هم‌بحثی‌ها</span>
-                    <p className="font-bold text-slate-800 leading-relaxed">
-                      {studentDetails.discussionSummary?.partnerNames?.length ? (
-                        studentDetails.discussionSummary.partnerNames.join('، ')
-                      ) : (
-                        <span className="text-slate-400 font-normal">هم‌بحثی ثبت نشده است</span>
-                      )}
-                    </p>
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-2">
+                    <span className="text-[10px] font-bold text-slate-400 block mb-1">هم‌بحثی‌ها به تفکیک عنوان گروه</span>
+                    {studentDetails.discussionSummary?.groupBreakdown?.length ? (
+                      studentDetails.discussionSummary.groupBreakdown.map((gb, idx) => (
+                        <div key={idx} className="bg-white p-2 rounded-lg border border-slate-200 text-xs">
+                          <div className="font-black text-indigo-950 flex items-center gap-1">
+                            <span>گروه: «{gb.title}»</span>
+                            {gb.subject && <span className="text-slate-500 font-bold">({gb.subject})</span>}
+                          </div>
+                          <div className="text-slate-700 font-bold mt-1">
+                            هم‌بحث‌ها: {gb.partners.length > 0 ? gb.partners.join('، ') : 'عضو دیگری ثبت نشده'}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <span className="text-slate-400 font-normal">هم‌بحثی ثبت نشده است</span>
+                    )}
                   </div>
 
                   {studentDetails.discussionSummary && (
@@ -2060,11 +2080,20 @@ export default function Summary({ onNavigate, initialStudentId }: SummaryProps =
                   </span>
                 </h2>
                 <div className="space-y-2 text-xs">
-                  <div>
-                    <b>اسامی هم‌مباحثه‌ای‌ها:</b>{' '}
-                    {studentDetails.discussionSummary.partnerNames.length > 0
-                      ? studentDetails.discussionSummary.partnerNames.join('، ')
-                      : 'هم‌بحثی ثبت نشده'}
+                  <div className="space-y-1">
+                    <b>هم‌مباحثه‌ای‌ها به تفکیک عنوان گروه:</b>
+                    {studentDetails.discussionSummary.groupBreakdown && studentDetails.discussionSummary.groupBreakdown.length > 0 ? (
+                      <div className="space-y-1 mt-1">
+                        {studentDetails.discussionSummary.groupBreakdown.map((gb, idx) => (
+                          <div key={idx} className="bg-white p-1.5 rounded border border-slate-200 text-xs">
+                            <span className="font-bold text-indigo-900">گروه «{gb.title}»{gb.subject ? ` (${gb.subject})` : ''}: </span>
+                            <span className="text-slate-800 font-bold">{gb.partners.length > 0 ? gb.partners.join('، ') : 'عضو دیگری ثبت نشده'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-slate-500"> هم‌بحثی ثبت نشده</span>
+                    )}
                   </div>
                   <div className="grid grid-cols-2 gap-2 bg-white p-2.5 rounded border border-slate-200">
                     <div><b>ساعات مطالعه این طلبه:</b> {studentDetails.discussionSummary.studentTotalHours} ساعت</div>

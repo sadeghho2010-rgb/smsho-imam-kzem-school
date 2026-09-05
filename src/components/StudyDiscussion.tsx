@@ -77,6 +77,8 @@ export default function StudyDiscussion({ initialStudentId }: StudyDiscussionPro
   // Export PDF State
   const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
   const pdfPrintRef = useRef<HTMLDivElement>(null);
+  const compositionPdfRef = useRef<HTMLDivElement>(null);
+  const [isExportingCompositionPdf, setIsExportingCompositionPdf] = useState<boolean>(false);
 
   // Load Data
   const loadData = async () => {
@@ -437,7 +439,7 @@ export default function StudyDiscussion({ initialStudentId }: StudyDiscussionPro
     try {
       await exportElementToPdf({
         element: pdfPrintRef.current,
-        filename: `گزارش_گروه‌های_مباحثه_${new Date().toLocaleDateString('fa-IR-u-nu-latn').replace(/\//g, '-')}.pdf`,
+        filename: `گزارش_عملکرد_گروه‌های_مباحثه_${new Date().toLocaleDateString('fa-IR-u-nu-latn').replace(/\//g, '-')}.pdf`,
         orientation: 'portrait',
         marginMM: 8
       });
@@ -445,6 +447,24 @@ export default function StudyDiscussion({ initialStudentId }: StudyDiscussionPro
       console.error('PDF Export Error:', err);
     } finally {
       setIsExportingPdf(false);
+    }
+  };
+
+  // Handle Export Composition PDF (Group members and co-discussion partners)
+  const handleExportCompositionPdf = async () => {
+    if (!compositionPdfRef.current) return;
+    setIsExportingCompositionPdf(true);
+    try {
+      await exportElementToPdf({
+        element: compositionPdfRef.current,
+        filename: `گزارش_ترکیب_گروه‌های_مباحثه_${new Date().toLocaleDateString('fa-IR-u-nu-latn').replace(/\//g, '-')}.pdf`,
+        orientation: 'portrait',
+        marginMM: 8
+      });
+    } catch (err) {
+      console.error('Composition PDF Export Error:', err);
+    } finally {
+      setIsExportingCompositionPdf(false);
     }
   };
 
@@ -526,12 +546,23 @@ export default function StudyDiscussion({ initialStudentId }: StudyDiscussionPro
             </button>
 
             <button
+              onClick={handleExportCompositionPdf}
+              disabled={isExportingCompositionPdf || groups.length === 0}
+              className="px-4 py-3 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-slate-950 font-black text-xs sm:text-sm flex items-center gap-2 transition-all shadow-md hover:shadow-lg disabled:opacity-50 rounded-2xl"
+              title="خروجی PDF اعضای گروه‌های بحثی و هم‌بحث‌ها به تفکیک عنوان هر گروه"
+            >
+              {isExportingCompositionPdf ? <Activity size={18} className="animate-spin" /> : <FileText size={18} />}
+              <span>خروجی PDF ترکیب گروه‌ها و هم‌بحث‌ها</span>
+            </button>
+
+            <button
               onClick={handleExportGroupsPdf}
               disabled={isExportingPdf || groups.length === 0}
               className="px-4 py-3 bg-white/10 hover:bg-white/20 active:bg-white/30 border border-white/20 text-white rounded-2xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all backdrop-blur-md disabled:opacity-50"
+              title="خروجی PDF خلاصه آمار و ساعات مطالعه و مباحثه"
             >
               {isExportingPdf ? <Activity size={18} className="animate-spin" /> : <Printer size={18} />}
-              <span>خروجی پی‌دی‌اف گروه‌ها</span>
+              <span>خروجی PDF آمار عملکرد</span>
             </button>
           </div>
         </div>
@@ -702,6 +733,16 @@ export default function StudyDiscussion({ initialStudentId }: StudyDiscussionPro
                 className="w-full pr-8 pl-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
+
+            <button
+              onClick={handleExportCompositionPdf}
+              disabled={isExportingCompositionPdf || groups.length === 0}
+              className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all shadow-sm disabled:opacity-50"
+              title="خروجی PDF ترکیب اعضا و هم‌بحث‌ها به تفکیک عنوان گروه‌ها"
+            >
+              {isExportingCompositionPdf ? <Activity size={14} className="animate-spin" /> : <Printer size={14} />}
+              <span>PDF ترکیب اعضا</span>
+            </button>
           </div>
         )}
       </div>
@@ -952,54 +993,125 @@ export default function StudyDiscussion({ initialStudentId }: StudyDiscussionPro
                   </div>
                 </div>
 
-                {/* Discussion Partners Cards List */}
-                <div className="space-y-3 pt-2">
-                  <h3 className="text-sm font-black text-slate-800">لیست کامل هم‌مباحثه‌ای‌های {selectedStudentAnalysis.student.name}:</h3>
-                  
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {/* Active Student Partners */}
-                    {selectedStudentAnalysis.partnerStudents.map((partner) => {
-                      const pMetrics = getStudentMetrics(partner.id);
+                {/* Discussion Partners Grouped By Group Title */}
+                <div className="space-y-6 pt-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
+                    <h3 className="text-sm font-black text-slate-800">
+                      تفکیک هم‌بحث‌های {selectedStudentAnalysis.student.name} به تفکیک عنوان گروه‌های مباحثه:
+                    </h3>
+                    <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100 self-start sm:self-auto">
+                      حضور در {selectedStudentAnalysis.studentGroups.length} گروه مباحثاتی
+                    </span>
+                  </div>
+
+                  {selectedStudentAnalysis.studentGroups.length === 0 ? (
+                    <div className="p-4 bg-slate-50 text-slate-500 rounded-2xl text-xs text-center italic">
+                      این طلبه هنوز در هیچ گروه مباحثاتی عضو نشده است.
+                    </div>
+                  ) : (
+                    selectedStudentAnalysis.studentGroups.map((group) => {
+                      const groupActivePartners = allStudentsList.filter(
+                        (s) => group.memberStudentIds.includes(s.id) && s.id !== selectedStudentAnalysis.student.id && isStudentActive(s)
+                      );
+                      const groupExternalPartners = group.externalMembers || [];
+
                       return (
-                        <div key={partner.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
-                          <div className="flex items-center justify-between">
+                        <div key={group.id} className="bg-slate-50/80 rounded-2xl p-4 sm:p-5 border border-slate-200 space-y-3.5">
+                          {/* Group Header Banner */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 pb-2.5">
                             <div className="flex items-center gap-2.5">
-                              <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white font-black text-xs flex items-center justify-center">
-                                {partner.name[0]}
-                              </div>
+                              <span className="w-7 h-7 rounded-xl bg-indigo-600 text-white font-black text-xs flex items-center justify-center shadow-xs shrink-0">
+                                گروه
+                              </span>
                               <div>
-                                <h5 className="text-xs font-black text-slate-800">{partner.name}</h5>
-                                <span className="text-[10px] text-slate-500 font-medium">طلبه {partner.grade || 'پایه ۷'}</span>
+                                <div className="flex items-center gap-2">
+                                  <h4 className="text-sm font-black text-indigo-950">
+                                    {group.title}
+                                  </h4>
+                                  {group.subject && (
+                                    <span className="text-xs text-slate-600 font-bold">
+                                      ({group.subject})
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             </div>
-                            <span className="text-xs font-black text-indigo-700 bg-indigo-100/80 px-2 py-0.5 rounded-lg border border-indigo-200">
-                              مجموع: {pMetrics.totalHours}س
-                            </span>
+
+                            <div className="flex items-center gap-2">
+                              {group.grade && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 bg-white text-slate-700 rounded-md border border-slate-200">
+                                  {group.grade}
+                                </span>
+                              )}
+                              <span className="text-[10px] font-bold px-2.5 py-0.5 bg-indigo-100 text-indigo-800 rounded-md border border-indigo-200">
+                                {groupActivePartners.length + groupExternalPartners.length} هم‌بحث در این گروه
+                              </span>
+                            </div>
                           </div>
 
-                          <div className="flex items-center justify-between text-[10px] text-slate-600 pt-1.5 border-t border-slate-200/60 font-bold">
-                            <span>مطالعه: {pMetrics.studyHours} ساعت</span>
-                            <span>مباحثه: {pMetrics.discussionHours} ساعت</span>
-                          </div>
+                          {/* Partners Grid for THIS Group */}
+                          {groupActivePartners.length === 0 && groupExternalPartners.length === 0 ? (
+                            <p className="text-xs text-slate-400 italic p-2">عضو دیگری در این گروه ثبت نشده است.</p>
+                          ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                              {/* Internal Student Partners in this group */}
+                              {groupActivePartners.map((partner) => {
+                                const pMetrics = getStudentMetrics(partner.id);
+                                const sharedGroups = selectedStudentAnalysis.studentGroups.filter((g) =>
+                                  g.memberStudentIds.includes(partner.id)
+                                );
+
+                                return (
+                                  <div key={partner.id} className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-2">
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-2.5">
+                                        <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white font-black text-xs flex items-center justify-center shrink-0">
+                                          {partner.name[0]}
+                                        </div>
+                                        <div>
+                                          <h5 className="text-xs font-black text-slate-900">{partner.name}</h5>
+                                          <span className="text-[10px] text-slate-500 font-medium">طلبه {partner.grade || 'پایه ۷'}</span>
+                                        </div>
+                                      </div>
+                                      <span className="text-[11px] font-black text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
+                                        مجموع: {pMetrics.totalHours}س
+                                      </span>
+                                    </div>
+
+                                    {sharedGroups.length > 1 && (
+                                      <div className="text-[10px] font-bold text-amber-900 bg-amber-50/90 px-2 py-0.5 rounded border border-amber-200/80">
+                                        هم‌بحث مشترک در {sharedGroups.length} گروه ({sharedGroups.map((g) => g.title).join('، ')})
+                                      </div>
+                                    )}
+
+                                    <div className="flex items-center justify-between text-[10px] text-slate-600 pt-1.5 border-t border-slate-100 font-bold">
+                                      <span>مطالعه: {pMetrics.studyHours} ساعت</span>
+                                      <span>مباحثه: {pMetrics.discussionHours} ساعت</span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+
+                              {/* External Members in this group */}
+                              {groupExternalPartners.map((ext, idx) => (
+                                <div key={idx} className="p-3.5 bg-amber-50/80 rounded-xl border border-amber-200/80 flex items-center justify-between">
+                                  <div className="flex items-center gap-2.5">
+                                    <span className="text-[10px] font-black px-2 py-0.5 bg-amber-200 text-amber-900 rounded-md shrink-0">
+                                      سایر
+                                    </span>
+                                    <div>
+                                      <h5 className="text-xs font-black text-amber-900">{ext}</h5>
+                                      <span className="text-[10px] text-amber-700 font-medium">هم‌بحثی خارج از مدرسه (در {group.title})</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       );
-                    })}
-
-                    {/* External Members ("سایر") */}
-                    {selectedStudentAnalysis.externalPartners.map((ext, idx) => (
-                      <div key={idx} className="p-4 bg-amber-50/70 rounded-2xl border border-amber-200/80 flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <span className="text-[10px] font-black px-2 py-0.5 bg-amber-200 text-amber-900 rounded-md">
-                            سایر
-                          </span>
-                          <div>
-                            <h5 className="text-xs font-black text-amber-900">{ext}</h5>
-                            <span className="text-[10px] text-amber-700 font-medium">هم‌بحثی خارج از مدرسه</span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                    })
+                  )}
                 </div>
 
               </div>
@@ -1569,6 +1681,186 @@ export default function StudyDiscussion({ initialStudentId }: StudyDiscussionPro
                     </tr>
                   );
                 })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* PRINT CONTAINER FOR GROUP COMPOSITION & PARTNERS PDF EXPORT */}
+      <div style={{ position: 'fixed', left: '-9999px', top: '0px', width: '850px', zIndex: -1000, pointerEvents: 'none', opacity: 0 }}>
+        <div ref={compositionPdfRef} className="p-8 bg-white font-vazir text-slate-900 space-y-6" dir="rtl">
+          {/* Official Header */}
+          <div className="text-center border-b-2 border-indigo-600 pb-4 space-y-2">
+            <h1 className="text-2xl font-black text-indigo-950">گزارش ترکیب گروه‌های مباحثه علمی و اسامی هم‌بحث‌ها</h1>
+            <p className="text-xs text-slate-600">
+              استاد/مسئول پایه: <span className="font-bold text-slate-800">{currentMentor.name}</span> | تاریخ تنظیم: <span className="font-bold text-slate-800">{new Date().toLocaleDateString('fa-IR-u-nu-latn')}</span> | تعداد کل گروه‌ها: <span className="font-bold text-slate-800">{groups.length}</span> | تعداد طلاب فعال: <span className="font-bold text-slate-800">{allStudentsList.filter(s => isStudentActive(s)).length} نفر</span>
+            </p>
+          </div>
+
+          {/* Section 1: Composition By Group */}
+          <div className="space-y-6">
+            <div className="border-b border-indigo-200 pb-2">
+              <h2 className="text-base font-black text-indigo-900">۱. ترکیب اعضا و هم‌بحث‌ها به تفکیک گروه‌های مباحثه</h2>
+              <p className="text-[11px] text-slate-500 font-medium">
+                در این بخش اعضای هر گروه مباحثات به همراه عنوان گروه و اسامی کامل هم‌بحث‌های آنان آورده شده است.
+              </p>
+            </div>
+
+            {groups.length === 0 ? (
+              <p className="text-xs text-slate-500 italic text-center py-4">هیچ گروه مباحثه‌ای ثبت نشده است.</p>
+            ) : (
+              groups.map((g, gIdx) => {
+                const activeGroupStudents = allStudentsList.filter(s => g.memberStudentIds.includes(s.id) && isStudentActive(s));
+                const externalNames = g.externalMembers || [];
+
+                return (
+                  <div key={g.id} className="border border-slate-300 rounded-xl p-4 space-y-3 bg-slate-50/50">
+                    <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="w-6 h-6 rounded-full bg-indigo-600 text-white font-black text-xs flex items-center justify-center">
+                          {gIdx + 1}
+                        </span>
+                        <h3 className="text-sm font-black text-indigo-950">
+                          {g.title}
+                        </h3>
+                        {g.subject && (
+                          <span className="text-xs font-bold text-slate-600">
+                            (موضوع: {g.subject})
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs font-bold px-2.5 py-0.5 bg-indigo-100 text-indigo-800 rounded-full border border-indigo-200">
+                        {g.grade || 'پایه عمومی'}
+                      </span>
+                    </div>
+
+                    {g.description && (
+                      <p className="text-xs text-slate-600 bg-white p-2 rounded-lg border border-slate-200 italic">
+                        توضیحات: {g.description}
+                      </p>
+                    )}
+
+                    {/* Table of members for this group */}
+                    <table className="w-full text-right text-xs border-collapse border border-slate-300 bg-white">
+                      <thead>
+                        <tr className="bg-slate-100 font-black text-slate-800">
+                          <th className="p-2 border border-slate-300 w-10 text-center">ردیف</th>
+                          <th className="p-2 border border-slate-300">نام و نام خانوادگی</th>
+                          <th className="p-2 border border-slate-300">پایه</th>
+                          <th className="p-2 border border-slate-300">نوع عضویت</th>
+                          <th className="p-2 border border-slate-300">هم‌بحث‌ها در این گروه</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {activeGroupStudents.map((stu, sIdx) => {
+                          const otherInternal = activeGroupStudents.filter(m => m.id !== stu.id).map(m => m.name);
+                          const allCoPartners = [...otherInternal, ...externalNames];
+
+                          return (
+                            <tr key={stu.id} className="hover:bg-slate-50">
+                              <td className="p-2 border border-slate-300 text-center font-bold">{sIdx + 1}</td>
+                              <td className="p-2 border border-slate-300 font-black text-slate-900">{stu.name}</td>
+                              <td className="p-2 border border-slate-300">{stu.grade || 'پایه ۷'}</td>
+                              <td className="p-2 border border-slate-300 text-indigo-700 font-bold">عضو اصلی (طلبه)</td>
+                              <td className="p-2 border border-slate-300 font-medium text-slate-700">
+                                {allCoPartners.length > 0 ? allCoPartners.join(' ، ') : '---'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+
+                        {externalNames.map((extName, extIdx) => {
+                          const internalNames = activeGroupStudents.map(m => m.name);
+                          const otherExternal = externalNames.filter((_, idx) => idx !== extIdx);
+                          const allCoPartners = [...internalNames, ...otherExternal];
+
+                          return (
+                            <tr key={`ext_${extIdx}`} className="bg-amber-50/50">
+                              <td className="p-2 border border-slate-300 text-center font-bold">
+                                {activeGroupStudents.length + extIdx + 1}
+                              </td>
+                              <td className="p-2 border border-slate-300 font-black text-amber-900">{extName}</td>
+                              <td className="p-2 border border-slate-300">---</td>
+                              <td className="p-2 border border-slate-300 text-amber-800 font-bold">هم‌بحث خارج/مهمان</td>
+                              <td className="p-2 border border-slate-300 font-medium text-slate-700">
+                                {allCoPartners.length > 0 ? allCoPartners.join(' ، ') : '---'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Section 2: Student-Centric Breakdown */}
+          <div className="space-y-4 pt-6 border-t-2 border-indigo-600">
+            <div className="border-b border-indigo-200 pb-2">
+              <h2 className="text-base font-black text-indigo-900">۲. تفکیک هم‌بحث‌های هر طلبه (بر اساس عنوان دقیق هر گروه)</h2>
+              <p className="text-[11px] text-slate-500 font-medium">
+                در این بخش برای هر طلبه، تمام گروه‌هایی که در آن عضو است به همراه اسامی هم‌بحث‌ها به تفکیک عنوان گروه لیست شده است.
+              </p>
+            </div>
+
+            <table className="w-full text-right text-xs border-collapse border border-slate-300 bg-white">
+              <thead>
+                <tr className="bg-slate-100 font-black text-slate-800">
+                  <th className="p-2 border border-slate-300 w-10 text-center">ردیف</th>
+                  <th className="p-2 border border-slate-300 w-44">نام طلبه</th>
+                  <th className="p-2 border border-slate-300 w-20">پایه</th>
+                  <th className="p-2 border border-slate-300">عنوان گروه‌ها و اسامی هم‌بحث‌ها</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allStudentsList
+                  .filter(s => isStudentActive(s))
+                  .map((stu, sIdx) => {
+                    const studentGroups = groups.filter(g => g.memberStudentIds.includes(stu.id));
+
+                    return (
+                      <tr key={stu.id} className={sIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}>
+                        <td className="p-2 border border-slate-300 text-center font-bold">{sIdx + 1}</td>
+                        <td className="p-2 border border-slate-300 font-black text-indigo-950">{stu.name}</td>
+                        <td className="p-2 border border-slate-300">{stu.grade || 'پایه ۷'}</td>
+                        <td className="p-2 border border-slate-300">
+                          {studentGroups.length === 0 ? (
+                            <span className="text-slate-400 italic">در هیچ گروه مباحثه‌ای عضو نیست</span>
+                          ) : (
+                            <div className="space-y-2">
+                              {studentGroups.map((g) => {
+                                const activePartners = allStudentsList
+                                  .filter(m => g.memberStudentIds.includes(m.id) && m.id !== stu.id && isStudentActive(m))
+                                  .map(m => m.name);
+                                const extPartners = g.externalMembers || [];
+                                const allPartners = [...activePartners, ...extPartners];
+
+                                return (
+                                  <div key={g.id} className="bg-indigo-50/50 p-2 rounded-lg border border-indigo-100">
+                                    <div className="font-black text-indigo-900 flex items-center gap-1.5">
+                                      <span>در گروه: «{g.title}»</span>
+                                      {g.subject && <span className="text-slate-600 font-bold">({g.subject})</span>}
+                                    </div>
+                                    <div className="text-slate-700 font-medium mt-1">
+                                      <span className="font-bold text-slate-800">هم‌بحث‌ها: </span>
+                                      {allPartners.length > 0 ? (
+                                        <span className="text-slate-900 font-bold">{allPartners.join(' ، ')}</span>
+                                      ) : (
+                                        <span className="text-slate-400 italic">عضو دیگری ثبت نشده</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
               </tbody>
             </table>
           </div>
