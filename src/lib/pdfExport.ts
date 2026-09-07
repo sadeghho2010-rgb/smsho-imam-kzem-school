@@ -18,71 +18,91 @@ export async function exportElementToPdf({
     throw new Error('PDF Export Error: Element is missing or undefined.');
   }
 
-  const canvas = await html2canvasPro(element, {
-    scale: 2,
-    useCORS: true,
-    logging: false,
-    backgroundColor: '#ffffff',
-    windowWidth: 1200,
-    onclone: (clonedDoc: Document) => {
-      // 1. Sanitize all <style> elements in cloned document
-      const styleTags = clonedDoc.querySelectorAll('style');
-      styleTags.forEach((styleTag) => {
-        if (styleTag.textContent) {
-          styleTag.textContent = styleTag.textContent
-            .replace(/oklab\([^)]+\)/gi, '#4f46e5')
-            .replace(/oklch\([^)]+\)/gi, '#4f46e5');
-        }
-      });
+  // Tag element temporarily for onclone detection
+  element.setAttribute('data-pdf-export-target', 'true');
 
-      // 2. Sanitize inline styles on cloned elements
-      const allElements = clonedDoc.querySelectorAll('*');
-      allElements.forEach((el) => {
-        const htmlEl = el as HTMLElement;
-        if (htmlEl.style && htmlEl.style.cssText) {
-          if (htmlEl.style.cssText.includes('oklab') || htmlEl.style.cssText.includes('oklch')) {
-            htmlEl.style.cssText = htmlEl.style.cssText
+  try {
+    const canvas = await html2canvasPro(element, {
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      backgroundColor: '#ffffff',
+      windowWidth: 1200,
+      onclone: (clonedDoc: Document) => {
+        // Ensure target element and parents in clone are visible
+        const clonedEl = clonedDoc.querySelector('[data-pdf-export-target="true"]') as HTMLElement;
+        if (clonedEl) {
+          let curr: HTMLElement | null = clonedEl;
+          while (curr && curr !== clonedDoc.body) {
+            if (window.getComputedStyle(curr).display === 'none') {
+              curr.style.display = 'block';
+            }
+            curr.style.visibility = 'visible';
+            curr = curr.parentElement;
+          }
+        }
+
+        // 1. Sanitize all <style> elements in cloned document
+        const styleTags = clonedDoc.querySelectorAll('style');
+        styleTags.forEach((styleTag) => {
+          if (styleTag.textContent) {
+            styleTag.textContent = styleTag.textContent
               .replace(/oklab\([^)]+\)/gi, '#4f46e5')
               .replace(/oklch\([^)]+\)/gi, '#4f46e5');
           }
-        }
-      });
+        });
+
+        // 2. Sanitize inline styles on cloned elements
+        const allElements = clonedDoc.querySelectorAll('*');
+        allElements.forEach((el) => {
+          const htmlEl = el as HTMLElement;
+          if (htmlEl.style && htmlEl.style.cssText) {
+            if (htmlEl.style.cssText.includes('oklab') || htmlEl.style.cssText.includes('oklch')) {
+              htmlEl.style.cssText = htmlEl.style.cssText
+                .replace(/oklab\([^)]+\)/gi, '#4f46e5')
+                .replace(/oklch\([^)]+\)/gi, '#4f46e5');
+            }
+          }
+        });
+      }
+    });
+
+    if (!canvas.width || !canvas.height || canvas.width <= 0 || canvas.height <= 0) {
+      throw new Error('PDF Export Error: Generated canvas has invalid dimensions.');
     }
-  });
 
-  if (!canvas.width || !canvas.height || canvas.width <= 0 || canvas.height <= 0) {
-    throw new Error('PDF Export Error: Generated canvas has invalid dimensions.');
-  }
+    const imgData = canvas.toDataURL('image/jpeg', 0.95);
+    const pdf = new jsPDF({
+      unit: 'mm',
+      format: 'a4',
+      orientation
+    });
 
-  const imgData = canvas.toDataURL('image/jpeg', 0.95);
-  const pdf = new jsPDF({
-    unit: 'mm',
-    format: 'a4',
-    orientation
-  });
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
 
-  const pageWidth = pdf.internal.pageSize.getWidth();
-  const pageHeight = pdf.internal.pageSize.getHeight();
+    const printWidth = pageWidth - (marginMM * 2);
+    const imgHeight = (canvas.height * printWidth) / canvas.width;
 
-  const printWidth = pageWidth - (marginMM * 2);
-  const imgHeight = (canvas.height * printWidth) / canvas.width;
+    if (!isFinite(imgHeight) || imgHeight <= 0) {
+      throw new Error('PDF Export Error: Calculated image height is invalid.');
+    }
 
-  if (!isFinite(imgHeight) || imgHeight <= 0) {
-    throw new Error('PDF Export Error: Calculated image height is invalid.');
-  }
+    let heightLeft = imgHeight;
+    let position = marginMM;
 
-  let heightLeft = imgHeight;
-  let position = marginMM;
-
-  pdf.addImage(imgData, 'JPEG', marginMM, position, printWidth, imgHeight);
-  heightLeft -= (pageHeight - (marginMM * 2));
-
-  while (heightLeft > 0) {
-    position = heightLeft - imgHeight + marginMM;
-    pdf.addPage();
     pdf.addImage(imgData, 'JPEG', marginMM, position, printWidth, imgHeight);
     heightLeft -= (pageHeight - (marginMM * 2));
-  }
 
-  pdf.save(filename);
+    while (heightLeft > 0) {
+      position = heightLeft - imgHeight + marginMM;
+      pdf.addPage();
+      pdf.addImage(imgData, 'JPEG', marginMM, position, printWidth, imgHeight);
+      heightLeft -= (pageHeight - (marginMM * 2));
+    }
+
+    pdf.save(filename);
+  } finally {
+    element.removeAttribute('data-pdf-export-target');
+  }
 }

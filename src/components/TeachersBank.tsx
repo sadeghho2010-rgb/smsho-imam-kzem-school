@@ -1103,12 +1103,12 @@ export default function TeachersBank() {
       )}
 
       {/* HIDDEN PRINT CONTAINER FOR PDF EXPORT */}
-      <div className="hidden">
+      <div style={{ position: 'fixed', left: '-9999px', top: '0px', width: '1100px', zIndex: -1000, pointerEvents: 'none', opacity: 0 }}>
         <div 
           ref={pdfPrintRef} 
           className="p-8 bg-white text-slate-900 font-sans space-y-5" 
           dir="rtl"
-          style={{ width: '1100px' }}
+          style={{ width: '1100px', backgroundColor: '#ffffff' }}
         >
           {/* PDF Report Header */}
           <div className="flex items-center justify-between border-b-2 border-indigo-900 pb-4">
