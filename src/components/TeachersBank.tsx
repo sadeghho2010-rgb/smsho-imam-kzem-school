@@ -63,6 +63,12 @@ export default function TeachersBank() {
   const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
   const pdfPrintRef = useRef<HTMLDivElement>(null);
 
+  // Import State
+  const [showImportModal, setShowImportModal] = useState<boolean>(false);
+  const [importLoading, setImportLoading] = useState<boolean>(false);
+  const [importMessage, setImportMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const importFileRef = useRef<HTMLInputElement>(null);
+
   // Layout View Mode
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
   const [copiedPhoneId, setCopiedPhoneId] = useState<string | null>(null);
@@ -331,6 +337,169 @@ export default function TeachersBank() {
     }
   };
 
+  // Export to JSON
+  const handleExportJson = () => {
+    if (filteredTeachers.length === 0) {
+      alert('هیچ استادی جهت خروجی در فیلتر فعلی وجود ندارد.');
+      return;
+    }
+
+    const exportData = filteredTeachers.map((t) => {
+      const copy = { ...t };
+      if (!includePhoneInExport) {
+        delete copy.phoneNumber;
+      }
+      return copy;
+    });
+
+    const jsonString = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `بانک_اساتید_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // Import from Excel or JSON
+  const handleProcessImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImportLoading(true);
+    setImportMessage(null);
+
+    const fileName = file.name.toLowerCase();
+
+    try {
+      let importedItems: any[] = [];
+
+      if (fileName.endsWith('.json')) {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) {
+          importedItems = parsed;
+        } else if (parsed && typeof parsed === 'object') {
+          if (Array.isArray(parsed.teachers)) {
+            importedItems = parsed.teachers;
+          } else if (Array.isArray(parsed.data)) {
+            importedItems = parsed.data;
+          } else {
+            throw new Error('فرمت JSON ساختار معتبری شامل لیست اساتید ندارد.');
+          }
+        }
+      } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || fileName.endsWith('.csv')) {
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        const rows = XLSX.utils.sheet_to_json<Record<string, any>>(worksheet);
+
+        importedItems = rows.map((row) => {
+          const getVal = (...keys: string[]) => {
+            for (const k of keys) {
+              if (row[k] !== undefined && row[k] !== null && row[k] !== '') {
+                return String(row[k]).trim();
+              }
+            }
+            return '';
+          };
+
+          const fullName = getVal('نام و نام خانوادگی', 'نام خانوادگی', 'نام', 'fullName', 'Name', 'FullName');
+          const phoneNumber = getVal('شماره تماس', 'تلفن', 'شماره همراه', 'موبایل', 'phoneNumber', 'Phone', 'Mobile');
+          const catStr = getVal('تخصص‌های کلی', 'تخصص', 'دسته', 'دسته‌بندی', 'categories', 'Category');
+          const specStr = getVal('تخصص‌های جزئی', 'کتاب‌ها', 'detailedSpecialties', 'Specialties');
+          const experienceHistory = getVal('سوابق تدریس در مجموعه', 'سوابق تدریس', 'سوابق', 'experienceHistory');
+          const notes = getVal('توضیحات', 'ملاحظات', 'notes', 'Notes');
+          const priorityStr = getVal('اولویت', 'priority', 'Priority');
+          const statusStr = getVal('وضعیت', 'isActive', 'Status', 'Active');
+
+          let categories: TeacherCategory[] = [];
+          if (catStr) {
+            const parts = catStr.split(/[|،,/]/).map(s => s.trim());
+            for (const p of parts) {
+              if (ALL_CATEGORIES.includes(p as TeacherCategory)) {
+                categories.push(p as TeacherCategory);
+              }
+            }
+          }
+
+          let priorityNum: 1 | 2 | 3 = 1;
+          if (priorityStr.includes('2') || priorityStr.includes('۲') || priorityStr.includes('خوب')) priorityNum = 2;
+          if (priorityStr.includes('3') || priorityStr.includes('۳')) priorityNum = 3;
+
+          const isActiveVal = !statusStr || statusStr === 'فعال' || statusStr.toLowerCase() === 'true' || statusStr === '1';
+
+          return {
+            fullName,
+            phoneNumber,
+            categories: categories.length > 0 ? categories : ['اصول'],
+            notes,
+            experienceHistory,
+            priority: priorityNum,
+            isActive: isActiveVal,
+            detailedSpecialties: {
+              usul: specStr.includes('رسائل') ? ['رسائل'] : specStr.includes('کفایه') ? ['کفایه'] : specStr.includes('حلقات') ? ['حلقات'] : [],
+              fiqh: specStr.includes('مکاسب') ? ['مکاسب'] : [],
+              falsafa: specStr.includes('بدایه') ? ['بدایه'] : specStr.includes('نهایه') ? ['نهایه'] : [],
+              thursdayNote: specStr.includes('پنج‌شنبه') ? specStr : ''
+            }
+          };
+        });
+      } else {
+        throw new Error('فرمت فایل انتخاب شده پشتیبانی نمی‌شود. تنها فایل‌های JSON, XLSX, XLS, CSV مجاز هستند.');
+      }
+
+      const validTeachers = importedItems.filter((item) => item && typeof item === 'object' && item.fullName && String(item.fullName).trim());
+
+      if (validTeachers.length === 0) {
+        throw new Error('هیچ استادی با نام معتبر در فایل یافت نشد.');
+      }
+
+      let count = 0;
+      for (const t of validTeachers) {
+        const categories = Array.isArray(t.categories) && t.categories.length > 0 
+          ? t.categories.filter((c: any) => ALL_CATEGORIES.includes(c))
+          : ['اصول'];
+
+        const teacherRecord: Partial<Teacher> = {
+          fullName: String(t.fullName).trim(),
+          phoneNumber: t.phoneNumber ? String(t.phoneNumber).trim() : '',
+          photoUrl: t.photoUrl || '',
+          priority: (Number(t.priority) === 2 ? 2 : Number(t.priority) === 3 ? 3 : 1) as 1 | 2 | 3,
+          isActive: t.isActive !== false,
+          categories: categories.length > 0 ? categories : ['اصول'],
+          notes: t.notes ? String(t.notes).trim() : '',
+          experienceHistory: t.experienceHistory ? String(t.experienceHistory).trim() : '',
+          detailedSpecialties: t.detailedSpecialties || { usul: [], fiqh: [], falsafa: [], thursdayNote: '' },
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+
+        await localDb.addDoc('teachers', teacherRecord);
+        count++;
+      }
+
+      setImportMessage({
+        type: 'success',
+        text: `تعداد ${count} استاد با موفقیت به بانک اساتید اضافه شد.`
+      });
+      fetchTeachers();
+    } catch (err: any) {
+      console.error('Import error:', err);
+      setImportMessage({
+        type: 'error',
+        text: err?.message || 'خطا در بارگذاری و ورود اطلاعات از فایل.'
+      });
+    } finally {
+      setImportLoading(false);
+      if (e.target) e.target.value = '';
+    }
+  };
+
   const getPriorityBadge = (p: 1 | 2 | 3 | string) => {
     const num = Number(p);
     if (num === 1) {
@@ -405,29 +574,48 @@ export default function TeachersBank() {
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5 self-stretch sm:self-auto shrink-0">
+          <div className="flex flex-wrap items-center gap-2 self-stretch sm:self-auto shrink-0">
             <button
               onClick={handleExportExcel}
-              className="flex-1 sm:flex-initial flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2.5 rounded-2xl text-xs transition-all shadow-md active:scale-95"
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-2 rounded-2xl text-xs transition-all shadow-md active:scale-95"
             >
-              <FileSpreadsheet size={16} />
+              <FileSpreadsheet size={15} />
               <span>خروجی اکسل</span>
             </button>
 
             <button
               onClick={handleExportPdf}
               disabled={isExportingPdf}
-              className="flex-1 sm:flex-initial flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-500 text-white font-bold px-4 py-2.5 rounded-2xl text-xs transition-all shadow-md active:scale-95 disabled:opacity-50"
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold px-3 py-2 rounded-2xl text-xs transition-all shadow-md active:scale-95 disabled:opacity-50"
             >
-              <Download size={16} />
-              <span>{isExportingPdf ? 'در حال دریافت PDF...' : 'خروجی PDF'}</span>
+              <Download size={15} />
+              <span>{isExportingPdf ? 'در حال دریافت...' : 'خروجی PDF'}</span>
+            </button>
+
+            <button
+              onClick={handleExportJson}
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 bg-amber-600 hover:bg-amber-500 text-white font-bold px-3 py-2 rounded-2xl text-xs transition-all shadow-md active:scale-95"
+            >
+              <FileText size={15} />
+              <span>خروجی JSON</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setImportMessage(null);
+                setShowImportModal(true);
+              }}
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 bg-teal-600 hover:bg-teal-500 text-white font-bold px-3 py-2 rounded-2xl text-xs transition-all shadow-md active:scale-95"
+            >
+              <Upload size={15} />
+              <span>افزودن از فایل (اکسل/JSON)</span>
             </button>
 
             <button
               onClick={openAddModal}
-              className="w-full sm:w-auto flex items-center justify-center gap-2 bg-indigo-500 hover:bg-indigo-400 text-white font-black px-5 py-2.5 rounded-2xl text-xs transition-all shadow-lg hover:shadow-indigo-500/25 active:scale-95"
+              className="w-full sm:w-auto flex items-center justify-center gap-1.5 bg-indigo-500 hover:bg-indigo-400 text-white font-black px-4 py-2 rounded-2xl text-xs transition-all shadow-lg hover:shadow-indigo-500/25 active:scale-95"
             >
-              <UserPlus size={18} />
+              <UserPlus size={16} />
               <span>افزودن استاد جدید</span>
             </button>
           </div>
@@ -1295,6 +1483,87 @@ export default function TeachersBank() {
                 </div>
 
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Import File Modal */}
+      <AnimatePresence>
+        {showImportModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl border border-slate-100 space-y-5"
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-2xl bg-teal-50 text-teal-700">
+                    <Upload size={20} />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-black text-slate-800">ورود و افزودن اساتید از فایل</h2>
+                    <p className="text-[11px] font-medium text-slate-500">پشتیبانی از فایل‌های اکسل (XLSX, XLS, CSV) و JSON</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowImportModal(false)}
+                  className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-all"
+                >
+                  <XCircle size={20} />
+                </button>
+              </div>
+
+              {importMessage && (
+                <div className={cn(
+                  "p-3.5 rounded-2xl text-xs font-bold flex items-center gap-2 border",
+                  importMessage.type === 'success' ? "bg-emerald-50 text-emerald-800 border-emerald-200" : "bg-rose-50 text-rose-800 border-rose-200"
+                )}>
+                  {importMessage.type === 'success' ? <CheckCircle2 size={16} className="text-emerald-600 shrink-0" /> : <XCircle size={16} className="text-rose-600 shrink-0" />}
+                  <span>{importMessage.text}</span>
+                </div>
+              )}
+
+              <div className="space-y-3">
+                <div 
+                  onClick={() => importFileRef.current?.click()}
+                  className="border-2 border-dashed border-teal-200 hover:border-teal-400 bg-teal-50/40 hover:bg-teal-50 p-6 rounded-2xl text-center cursor-pointer transition-all space-y-2 group"
+                >
+                  <div className="w-12 h-12 mx-auto rounded-2xl bg-teal-100 text-teal-700 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <Upload size={24} />
+                  </div>
+                  <div className="text-xs font-bold text-slate-700">
+                    {importLoading ? 'در حال پردازش و افزودن اساتید...' : 'برای انتخاب فایل اکسل یا JSON اینجا کلیک کنید'}
+                  </div>
+                  <div className="text-[11px] font-medium text-slate-400">فرمت‌های مجاز: .xlsx , .xls , .csv , .json</div>
+                </div>
+
+                <input 
+                  type="file" 
+                  ref={importFileRef}
+                  onChange={handleProcessImportFile}
+                  accept=".xlsx,.xls,.csv,.json"
+                  className="hidden"
+                />
+
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl text-[11px] text-slate-600 leading-relaxed space-y-1">
+                  <span className="font-bold text-slate-800 block">راهنمای ساختار فایل:</span>
+                  <p>• <strong className="text-slate-800">اکسل:</strong> ستون اصلی باید شامل <strong className="text-slate-800">«نام و نام خانوادگی»</strong> باشد. ستون‌های اختیاری دیگر: «شماره تماس»، «تخصص‌های کلی» (مثلاً: فقه | اصول)، «تخصص‌های جزئی»، «سوابق تدریس»، «توضیحات» و «اولویت».</p>
+                  <p>• <strong className="text-slate-800">JSON:</strong> آرایه‌ای از اشیای استاد شامل مشخصات <code>fullName</code>, <code>phoneNumber</code>, <code>categories</code>, <code>priority</code> و...</p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowImportModal(false)}
+                  className="px-5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-all"
+                >
+                  بستن
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

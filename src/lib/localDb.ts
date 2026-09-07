@@ -45,6 +45,7 @@ export interface FullBackupPackage {
   academic_sub_periods?: any[];
   manager_files?: any[];
   settings?: any[];
+  teachers?: any[];
 }
 
 export interface MentorBackupPackage {
@@ -78,6 +79,7 @@ export interface MentorBackupPackage {
   academic_sub_periods?: any[];
   manager_files?: any[];
   settings?: any[];
+  teachers?: any[];
 }
 
 export interface StudentBackupPackage {
@@ -131,7 +133,8 @@ export const COLLECTIONS = [
   'academic_calendar_periods',
   'academic_holidays',
   'academic_holiday_types',
-  'academic_sub_periods'
+  'academic_sub_periods',
+  'teachers'
 ] as const;
 
 export type CollectionName = typeof COLLECTIONS[number] | string;
@@ -631,7 +634,8 @@ class LocalDatabase {
       academic_holidays,
       academic_holiday_types,
       academic_sub_periods,
-      settings
+      settings,
+      teachers
     ] = await Promise.all([
       this.getDocs('students'),
       this.getDocs('programs'),
@@ -655,7 +659,8 @@ class LocalDatabase {
       this.getDocs('academic_holidays'),
       this.getDocs('academic_holiday_types'),
       this.getDocs('academic_sub_periods'),
-      this.getDocs('settings')
+      this.getDocs('settings'),
+      this.getDocs('teachers')
     ]);
 
     const collections = [
@@ -681,7 +686,8 @@ class LocalDatabase {
       academic_holidays,
       academic_holiday_types,
       academic_sub_periods,
-      settings
+      settings,
+      teachers
     ];
 
     const totalRecords = collections.reduce((acc, colItems) => acc + (colItems ? colItems.length : 0), 0);
@@ -719,7 +725,8 @@ class LocalDatabase {
       academic_holidays,
       academic_holiday_types,
       academic_sub_periods,
-      settings
+      settings,
+      teachers
     };
 
     return backupPackage;
@@ -765,7 +772,8 @@ class LocalDatabase {
       allAcademicHolidays,
       allAcademicHolidayTypes,
       allAcademicSubPeriods,
-      allSettings
+      allSettings,
+      allTeachers
     ] = await Promise.all([
       this.getDocs('research'),
       this.getDocs('research_records'),
@@ -788,7 +796,8 @@ class LocalDatabase {
       this.getDocs('academic_holidays'),
       this.getDocs('academic_holiday_types'),
       this.getDocs('academic_sub_periods'),
-      this.getDocs('settings')
+      this.getDocs('settings'),
+      this.getDocs('teachers')
     ]);
 
     const mentorResearch = allResearch.filter((r) => studentIds.has(r.studentId));
@@ -861,7 +870,8 @@ class LocalDatabase {
       allAcademicHolidays,
       allAcademicHolidayTypes,
       allAcademicSubPeriods,
-      allSettings
+      allSettings,
+      allTeachers
     ];
 
     const totalRecords = collections.reduce((acc, colItems) => acc + (colItems ? colItems.length : 0), 0);
@@ -904,7 +914,8 @@ class LocalDatabase {
       academic_holidays: allAcademicHolidays,
       academic_holiday_types: allAcademicHolidayTypes,
       academic_sub_periods: allAcademicSubPeriods,
-      settings: allSettings
+      settings: allSettings,
+      teachers: allTeachers
     };
 
     return backupPackage;
@@ -1069,7 +1080,8 @@ class LocalDatabase {
       'academic_holidays',
       'academic_holiday_types',
       'academic_sub_periods',
-      'settings'
+      'settings',
+      'teachers'
     ];
 
     for (const col of collectionsToRestore) {
@@ -1183,7 +1195,8 @@ class LocalDatabase {
       'academic_holidays',
       'academic_holiday_types',
       'academic_sub_periods',
-      'settings'
+      'settings',
+      'teachers'
     ];
 
     for (const key of collectionsToRestore) {
