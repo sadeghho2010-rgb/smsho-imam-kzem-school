@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   UserPlus, 
   Search, 
@@ -24,13 +24,17 @@ import {
   UserCheck,
   Award,
   HelpCircle,
-  FileText
+  FileText,
+  Printer,
+  PhoneCall,
+  ShieldAlert
 } from 'lucide-react';
 import { Teacher, TeacherCategory, TeacherDetailedSpecialties } from '../types';
 import { localDb } from '../lib/localDb';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
+import { exportElementToPdf } from '../lib/pdfExport';
 
 const ALL_CATEGORIES: TeacherCategory[] = [
   'فقه',
@@ -43,59 +47,23 @@ const ALL_CATEGORIES: TeacherCategory[] = [
   'ویژه'
 ];
 
-const INITIAL_TEACHERS_SEED: Omit<Teacher, 'id'>[] = [
-  {
-    fullName: 'استاد سید محمدحسین حسینی',
-    phoneNumber: '09123456789',
-    photoUrl: '',
-    categories: ['اصول', 'مشاوره اصول', 'دروس پنجشنبه'],
-    detailedSpecialties: {
-      usul: ['رسائل', 'کفایه'],
-      thursdayNote: 'تدریس درس اخلاق و مباحث کاربردی مهدویت'
-    },
-    experienceHistory: 'تدریس پایه ۸ اصول در نیمسال اول - بازخورد بسیار عالی طلاب و نظم بالای کلاس.',
-    notes: 'استاد برجسته با فن بیان قوی، ترجیحاً کلاس‌های صبح ساعت 8 تا 10',
-    priority: 1,
-    isActive: true,
-    createdAt: new Date().toISOString()
-  },
-  {
-    fullName: 'استاد رضا سلیمانی',
-    phoneNumber: '09198765432',
-    photoUrl: '',
-    categories: ['فقه', 'مشاوره فقه'],
-    detailedSpecialties: {
-      fiqh: ['مکاسب']
-    },
-    experienceHistory: 'تدریس مکاسب پایه ۹ - طلاب از تسلط ایشان بر متون رضایت بالایی داشتند.',
-    notes: 'مناسب برای جلسات رفع اشکال و مشاوره تخصصی فقهی',
-    priority: 1,
-    isActive: true,
-    createdAt: new Date().toISOString()
-  },
-  {
-    fullName: 'استاد علی‌اکبر اسدی',
-    phoneNumber: '09351112233',
-    photoUrl: '',
-    categories: ['فلسفه', 'مشاوره فلسفه', 'ویژه'],
-    detailedSpecialties: {
-      falsafa: ['بدایه', 'آموزش فلسفه']
-    },
-    experienceHistory: 'برگزاری کارگاه ۳ روزه روش‌شناسی تفکر فلسفی - نتیجه عالی.',
-    notes: 'نویسنده کتاب و مقاله در حوزه فلسفه اسلامی',
-    priority: 2,
-    isActive: true,
-    createdAt: new Date().toISOString()
-  }
-];
-
 export default function TeachersBank() {
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  
+  // Search and Filters State
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
   const [selectedPriorityFilter, setSelectedPriorityFilter] = useState<string>('all');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>('all');
+  const [selectedPhoneFilter, setSelectedPhoneFilter] = useState<string>('all'); // all | has-phone | no-phone
+
+  // Export Settings State
+  const [includePhoneInExport, setIncludePhoneInExport] = useState<boolean>(true);
+  const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
+  const pdfPrintRef = useRef<HTMLDivElement>(null);
+
+  // Layout View Mode
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
   const [copiedPhoneId, setCopiedPhoneId] = useState<string | null>(null);
 
@@ -119,19 +87,26 @@ export default function TeachersBank() {
   const [falsafaSpecialties, setFalsafaSpecialties] = useState<('بدایه' | 'نهایه' | 'آموزش فلسفه')[]>([]);
   const [thursdayNote, setThursdayNote] = useState<string>('');
 
-  // Fetch teachers from DB
+  // Fetch teachers from DB & cleanup any seed samples
   const fetchTeachers = async () => {
     try {
       setLoading(true);
       const docs = (await localDb.getDocs('teachers')) as Teacher[];
-      if (docs.length === 0) {
-        // Seed initial data
-        const created: Teacher[] = [];
-        for (const seed of INITIAL_TEACHERS_SEED) {
-          const docId = await localDb.addDoc('teachers', seed as any);
-          created.push({ id: docId, ...seed } as Teacher);
+
+      // Clean up previous seed sample data if exists
+      const SEED_NAMES = [
+        'استاد سید محمدحسین حسینی',
+        'استاد رضا سلیمانی',
+        'استاد علی‌اکبر اسدی'
+      ];
+      const seedDocs = docs.filter(d => SEED_NAMES.includes(d.fullName));
+      
+      if (seedDocs.length > 0) {
+        for (const sd of seedDocs) {
+          await localDb.deleteDoc('teachers', sd.id);
         }
-        setTeachers(created);
+        const cleanDocs = (await localDb.getDocs('teachers')) as Teacher[];
+        setTeachers(cleanDocs);
       } else {
         setTeachers(docs);
       }
@@ -271,34 +246,6 @@ export default function TeachersBank() {
     setTimeout(() => setCopiedPhoneId(null), 2000);
   };
 
-  // Export to Excel
-  const handleExportExcel = () => {
-    const exportData = filteredTeachers.map((t, idx) => {
-      const specList: string[] = [];
-      if (t.detailedSpecialties?.usul?.length) specList.push(`اصول: ${t.detailedSpecialties.usul.join('، ')}`);
-      if (t.detailedSpecialties?.fiqh?.length) specList.push(`فقه: ${t.detailedSpecialties.fiqh.join('، ')}`);
-      if (t.detailedSpecialties?.falsafa?.length) specList.push(`فلسفه: ${t.detailedSpecialties.falsafa.join('، ')}`);
-      if (t.detailedSpecialties?.thursdayNote) specList.push(`پنج‌شنبه: ${t.detailedSpecialties.thursdayNote}`);
-
-      return {
-        'ردیف': idx + 1,
-        'نام و نام خانوادگی': t.fullName,
-        'شماره تماس': t.phoneNumber || 'ثبت نشده',
-        'تخصص‌های کلی': t.categories?.join(' | ') || '-',
-        'تخصص‌های جزئی': specList.join(' / ') || '-',
-        'سوابق تدریس در مجموعه': t.experienceHistory || '-',
-        'توضیحات': t.notes || '-',
-        'اولویت': `اولویت ${t.priority}`,
-        'وضعیت': t.isActive ? 'فعال' : 'غیرفعال'
-      };
-    });
-
-    const worksheet = XLSX.utils.json_to_sheet(exportData);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'بانک اساتید');
-    XLSX.writeFile(workbook, `بانک_اساتید_${new Date().toISOString().slice(0,10)}.xlsx`);
-  };
-
   // Filter logic
   const filteredTeachers = teachers.filter(t => {
     const searchLower = searchTerm.toLowerCase().trim();
@@ -315,9 +262,74 @@ export default function TeachersBank() {
     const matchesCategory = selectedCategoryFilter === 'all' || t.categories?.includes(selectedCategoryFilter as TeacherCategory);
     const matchesPriority = selectedPriorityFilter === 'all' || String(t.priority) === selectedPriorityFilter;
     const matchesStatus = selectedStatusFilter === 'all' || (selectedStatusFilter === 'active' ? t.isActive : !t.isActive);
+    
+    const matchesPhone = selectedPhoneFilter === 'all' || 
+      (selectedPhoneFilter === 'has-phone' ? Boolean(t.phoneNumber && t.phoneNumber.trim()) : !t.phoneNumber || !t.phoneNumber.trim());
 
-    return matchesSearch && matchesCategory && matchesPriority && matchesStatus;
+    return matchesSearch && matchesCategory && matchesPriority && matchesStatus && matchesPhone;
   });
+
+  // Export to Excel
+  const handleExportExcel = () => {
+    if (filteredTeachers.length === 0) {
+      alert('هیچ استادی جهت خروجی در فیلتر فعلی وجود ندارد.');
+      return;
+    }
+
+    const exportData = filteredTeachers.map((t, idx) => {
+      const specList: string[] = [];
+      if (t.detailedSpecialties?.usul?.length) specList.push(`اصول: ${t.detailedSpecialties.usul.join('، ')}`);
+      if (t.detailedSpecialties?.fiqh?.length) specList.push(`فقه: ${t.detailedSpecialties.fiqh.join('، ')}`);
+      if (t.detailedSpecialties?.falsafa?.length) specList.push(`فلسفه: ${t.detailedSpecialties.falsafa.join('، ')}`);
+      if (t.detailedSpecialties?.thursdayNote) specList.push(`پنج‌شنبه: ${t.detailedSpecialties.thursdayNote}`);
+
+      const row: Record<string, any> = {
+        'ردیف': idx + 1,
+        'نام و نام خانوادگی': t.fullName,
+      };
+
+      if (includePhoneInExport) {
+        row['شماره تماس'] = t.phoneNumber || 'ثبت نشده';
+      }
+
+      row['تخصص‌های کلی'] = t.categories?.join(' | ') || '-';
+      row['تخصص‌های جزئی'] = specList.join(' / ') || '-';
+      row['سوابق تدریس در مجموعه'] = t.experienceHistory || '-';
+      row['توضیحات'] = t.notes || '-';
+      row['اولویت'] = `اولویت ${t.priority}`;
+      row['وضعیت'] = t.isActive ? 'فعال' : 'غیرفعال';
+
+      return row;
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'بانک اساتید');
+    XLSX.writeFile(workbook, `بانک_اساتید_${new Date().toISOString().slice(0,10)}.xlsx`);
+  };
+
+  // Export to PDF
+  const handleExportPdf = async () => {
+    if (filteredTeachers.length === 0) {
+      alert('هیچ استادی جهت خروجی در فیلتر فعلی وجود ندارد.');
+      return;
+    }
+    if (!pdfPrintRef.current) return;
+
+    try {
+      setIsExportingPdf(true);
+      await exportElementToPdf({
+        element: pdfPrintRef.current,
+        filename: `بانک_اساتید_${new Date().toISOString().slice(0,10)}.pdf`,
+        orientation: 'landscape'
+      });
+    } catch (err) {
+      console.error('Error exporting PDF:', err);
+      alert('خطا در صدور فایل PDF.');
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
 
   const getPriorityBadge = (p: 1 | 2 | 3 | string) => {
     const num = Number(p);
@@ -393,18 +405,27 @@ export default function TeachersBank() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2.5 self-stretch sm:self-auto shrink-0">
+          <div className="flex flex-wrap items-center gap-2.5 self-stretch sm:self-auto shrink-0">
             <button
               onClick={handleExportExcel}
-              className="flex-1 sm:flex-initial flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 text-white border border-white/20 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all backdrop-blur-md"
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2.5 rounded-2xl text-xs transition-all shadow-md active:scale-95"
             >
-              <FileSpreadsheet size={16} className="text-emerald-400" />
+              <FileSpreadsheet size={16} />
               <span>خروجی اکسل</span>
             </button>
 
             <button
+              onClick={handleExportPdf}
+              disabled={isExportingPdf}
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-500 text-white font-bold px-4 py-2.5 rounded-2xl text-xs transition-all shadow-md active:scale-95 disabled:opacity-50"
+            >
+              <Download size={16} />
+              <span>{isExportingPdf ? 'در حال دریافت PDF...' : 'خروجی PDF'}</span>
+            </button>
+
+            <button
               onClick={openAddModal}
-              className="flex-1 sm:flex-initial flex items-center justify-center gap-2 bg-indigo-500 hover:bg-indigo-400 text-white font-black px-5 py-2.5 rounded-2xl text-xs transition-all shadow-lg hover:shadow-indigo-500/25 active:scale-95"
+              className="w-full sm:w-auto flex items-center justify-center gap-2 bg-indigo-500 hover:bg-indigo-400 text-white font-black px-5 py-2.5 rounded-2xl text-xs transition-all shadow-lg hover:shadow-indigo-500/25 active:scale-95"
             >
               <UserPlus size={18} />
               <span>افزودن استاد جدید</span>
@@ -415,14 +436,16 @@ export default function TeachersBank() {
 
       {/* Filters and Controls Bar */}
       <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        
+        {/* Filter Inputs Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           
           {/* Search Input */}
-          <div className="relative">
+          <div className="relative col-span-1 sm:col-span-2 lg:col-span-1">
             <Search className="absolute right-3.5 top-3 text-slate-400" size={16} />
             <input 
               type="text"
-              placeholder="جستجو نام، شماره، درس یا کتاب..."
+              placeholder="جستجو نام، شماره، درس..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pr-10 pl-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all"
@@ -457,6 +480,19 @@ export default function TeachersBank() {
             </select>
           </div>
 
+          {/* Phone Presence Filter */}
+          <div className="relative">
+            <select
+              value={selectedPhoneFilter}
+              onChange={(e) => setSelectedPhoneFilter(e.target.value)}
+              className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+            >
+              <option value="all">فیلتر شماره: همه اساتید</option>
+              <option value="has-phone">فقط اساتید دارای شماره تماس</option>
+              <option value="no-phone">فقط اساتید بدون شماره تماس</option>
+            </select>
+          </div>
+
           {/* Status Filter */}
           <div className="relative">
             <select
@@ -472,12 +508,28 @@ export default function TeachersBank() {
 
         </div>
 
-        <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs text-slate-500 font-medium">
-          <div>
-            تعداد اساتید یافت‌شده: <span className="font-bold text-indigo-700">{filteredTeachers.length}</span> نفر
+        {/* Export Option Checkbox & Summary bar */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-3 border-t border-slate-100 text-xs font-medium">
+          
+          <div className="flex flex-wrap items-center gap-4">
+            <span className="text-slate-600">
+              تعداد اساتید یافت‌شده: <span className="font-bold text-indigo-700">{filteredTeachers.length}</span> نفر
+            </span>
+
+            {/* Export Toggle: Include Phone Number */}
+            <label className="inline-flex items-center gap-2 cursor-pointer select-none bg-indigo-50 text-indigo-900 border border-indigo-200/80 px-3 py-1.5 rounded-xl hover:bg-indigo-100/80 transition-all">
+              <input 
+                type="checkbox"
+                checked={includePhoneInExport}
+                onChange={(e) => setIncludePhoneInExport(e.target.checked)}
+                className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 accent-indigo-600 cursor-pointer"
+              />
+              <span className="text-[11px] font-bold">درج شماره تماس اساتید در فایل خروجی (اکسل / PDF)</span>
+            </label>
           </div>
 
-          <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl">
+          {/* Layout View Mode Buttons */}
+          <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl shrink-0">
             <button
               onClick={() => setViewMode('table')}
               className={cn(
@@ -499,6 +551,7 @@ export default function TeachersBank() {
               <span>کارت‌ها</span>
             </button>
           </div>
+
         </div>
       </div>
 
@@ -861,6 +914,84 @@ export default function TeachersBank() {
         </div>
       )}
 
+      {/* HIDDEN PRINT CONTAINER FOR PDF EXPORT */}
+      <div className="hidden">
+        <div 
+          ref={pdfPrintRef} 
+          className="p-8 bg-white text-slate-900 font-sans space-y-5" 
+          dir="rtl"
+          style={{ width: '1100px' }}
+        >
+          {/* PDF Report Header */}
+          <div className="flex items-center justify-between border-b-2 border-indigo-900 pb-4">
+            <div className="space-y-1">
+              <h1 className="text-2xl font-black text-indigo-950">بانک اطلاعات اساتید و مدرسین حوزه علمیه</h1>
+              <p className="text-xs text-slate-600 font-bold">
+                گزارش اساتید مدعو و مدرسین دروس فقه، اصول، فلسفه و مشاوره‌های علمی
+              </p>
+            </div>
+            <div className="text-left space-y-1">
+              <div className="text-xs font-black text-indigo-900">تاریخ گزارش: {new Date().toLocaleDateString('fa-IR')}</div>
+              <div className="text-[11px] font-bold text-slate-600">تعداد اساتید: {filteredTeachers.length} نفر</div>
+              {!includePhoneInExport && (
+                <div className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
+                  (خروجی بدون شماره تماس اساتید)
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* PDF Teachers Table */}
+          <table className="w-full text-right text-xs border-collapse border border-slate-300">
+            <thead>
+              <tr className="bg-slate-100 text-slate-900 font-bold border-b border-slate-300">
+                <th className="p-2.5 border border-slate-300 text-center w-10">#</th>
+                <th className="p-2.5 border border-slate-300">نام و نام خانوادگی استاد</th>
+                {includePhoneInExport && (
+                  <th className="p-2.5 border border-slate-300 text-center">شماره تماس</th>
+                )}
+                <th className="p-2.5 border border-slate-300">تخصص‌های اصلی</th>
+                <th className="p-2.5 border border-slate-300">تخصص‌های جزئی (کتاب‌ها)</th>
+                <th className="p-2.5 border border-slate-300">سوابق تدریس در مجموعه</th>
+                <th className="p-2.5 border border-slate-300">توضیحات</th>
+                <th className="p-2.5 border border-slate-300 text-center w-20">اولویت</th>
+                <th className="p-2.5 border border-slate-300 text-center w-16">وضعیت</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredTeachers.map((t, idx) => {
+                const spec = t.detailedSpecialties;
+                const specList: string[] = [];
+                if (spec?.usul?.length) specList.push(`اصول: ${spec.usul.join('، ')}`);
+                if (spec?.fiqh?.length) specList.push(`فقه: ${spec.fiqh.join('، ')}`);
+                if (spec?.falsafa?.length) specList.push(`فلسفه: ${spec.falsafa.join('، ')}`);
+                if (spec?.thursdayNote) specList.push(`۵شنبه: ${spec.thursdayNote}`);
+
+                return (
+                  <tr key={t.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/80'}>
+                    <td className="p-2 border border-slate-300 text-center font-bold text-slate-500">{idx + 1}</td>
+                    <td className="p-2 border border-slate-300 font-bold text-slate-900">{t.fullName}</td>
+                    {includePhoneInExport && (
+                      <td className="p-2 border border-slate-300 text-center font-mono text-slate-800">{t.phoneNumber || '-'}</td>
+                    )}
+                    <td className="p-2 border border-slate-300">{t.categories?.join('، ') || '-'}</td>
+                    <td className="p-2 border border-slate-300 font-medium">{specList.join(' | ') || '-'}</td>
+                    <td className="p-2 border border-slate-300 text-[11px] leading-relaxed">{t.experienceHistory || '-'}</td>
+                    <td className="p-2 border border-slate-300 text-[11px] leading-relaxed">{t.notes || '-'}</td>
+                    <td className="p-2 border border-slate-300 text-center font-bold">
+                      اولویت {t.priority}
+                    </td>
+                    <td className="p-2 border border-slate-300 text-center font-bold">
+                      {t.isActive ? 'فعال' : 'غیرفعال'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       {/* ADD / EDIT TEACHER MODAL */}
       <AnimatePresence>
         {showModal && (
@@ -1077,7 +1208,7 @@ export default function TeachersBank() {
                 {hasFalsafaOrCounseling && (
                   <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} className="p-3 bg-purple-50/70 border border-purple-200 rounded-2xl space-y-1.5">
                     <label className="block text-xs font-bold text-purple-900">
-                      کتاب‌های مناسب تدریس فلسفه / مشاوره فلسفه:
+                      کتاب‌ها و مباحث مناسب تدریس فلسفه / مشاوره فلسفه:
                     </label>
                     <div className="flex flex-wrap gap-2 pt-1">
                       {(['بدایه', 'نهایه', 'آموزش فلسفه'] as const).map(book => {
