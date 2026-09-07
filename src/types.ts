@@ -32,6 +32,7 @@ export interface Program {
   time?: string;
   teacher?: string;
   mentorId?: string;
+  parentProgramId?: string; // ID of the main program if type === 'مشاوره'
 }
 
 export interface Enrollment {
