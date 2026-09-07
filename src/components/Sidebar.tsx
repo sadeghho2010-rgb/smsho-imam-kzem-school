@@ -32,11 +32,13 @@ const baseMenuItems = [
   { id: 'active-students', label: 'کاربران فعال', icon: UserCheck },
   { id: 'discussion', label: 'بخش مباحثه', icon: Users },
   { id: 'programs', label: 'برنامه‌های مدرسه', icon: Calendar },
+  { id: 'student-schedule', label: 'برنامه طلاب', icon: CalendarDays },
   { id: 'stats', label: 'آمار مطالعه', icon: BarChart2 },
   { id: 'research', label: 'بخش پژوهش', icon: BookOpen },
   { id: 'attendance', label: 'حضور و غیاب', icon: CheckSquare },
   { id: 'comments', label: 'نظرات و صحبت‌ها', icon: MessageSquare },
   { id: 'summary', label: 'جمع‌بندی و هوش مصنوعی', icon: BrainCircuit },
+  { id: 'teachers-bank', label: 'بانک اساتید', icon: GraduationCap },
   { id: 'manager-files', label: 'فایل‌های ارسالی مدیر', icon: FolderOpen },
   { id: 'backup', label: 'پشتیبان‌گیری', icon: HardDrive },
 ];

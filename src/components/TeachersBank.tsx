@@ -1,0 +1,1174 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  UserPlus, 
+  Search, 
+  Filter, 
+  Phone, 
+  GraduationCap, 
+  BookOpen, 
+  Edit, 
+  Trash2, 
+  CheckCircle2, 
+  XCircle, 
+  Star, 
+  Upload, 
+  Download, 
+  Grid, 
+  List, 
+  FileSpreadsheet, 
+  Copy, 
+  Check, 
+  Clock, 
+  Sparkles, 
+  ChevronDown,
+  UserCheck,
+  Award,
+  HelpCircle,
+  FileText
+} from 'lucide-react';
+import { Teacher, TeacherCategory, TeacherDetailedSpecialties } from '../types';
+import { localDb } from '../lib/localDb';
+import { cn } from '../lib/utils';
+import { motion, AnimatePresence } from 'motion/react';
+import * as XLSX from 'xlsx';
+
+const ALL_CATEGORIES: TeacherCategory[] = [
+  'فقه',
+  'اصول',
+  'فلسفه',
+  'مشاوره اصول',
+  'مشاوره فقه',
+  'مشاوره فلسفه',
+  'دروس پنجشنبه',
+  'ویژه'
+];
+
+const INITIAL_TEACHERS_SEED: Omit<Teacher, 'id'>[] = [
+  {
+    fullName: 'استاد سید محمدحسین حسینی',
+    phoneNumber: '09123456789',
+    photoUrl: '',
+    categories: ['اصول', 'مشاوره اصول', 'دروس پنجشنبه'],
+    detailedSpecialties: {
+      usul: ['رسائل', 'کفایه'],
+      thursdayNote: 'تدریس درس اخلاق و مباحث کاربردی مهدویت'
+    },
+    experienceHistory: 'تدریس پایه ۸ اصول در نیمسال اول - بازخورد بسیار عالی طلاب و نظم بالای کلاس.',
+    notes: 'استاد برجسته با فن بیان قوی، ترجیحاً کلاس‌های صبح ساعت 8 تا 10',
+    priority: 1,
+    isActive: true,
+    createdAt: new Date().toISOString()
+  },
+  {
+    fullName: 'استاد رضا سلیمانی',
+    phoneNumber: '09198765432',
+    photoUrl: '',
+    categories: ['فقه', 'مشاوره فقه'],
+    detailedSpecialties: {
+      fiqh: ['مکاسب']
+    },
+    experienceHistory: 'تدریس مکاسب پایه ۹ - طلاب از تسلط ایشان بر متون رضایت بالایی داشتند.',
+    notes: 'مناسب برای جلسات رفع اشکال و مشاوره تخصصی فقهی',
+    priority: 1,
+    isActive: true,
+    createdAt: new Date().toISOString()
+  },
+  {
+    fullName: 'استاد علی‌اکبر اسدی',
+    phoneNumber: '09351112233',
+    photoUrl: '',
+    categories: ['فلسفه', 'مشاوره فلسفه', 'ویژه'],
+    detailedSpecialties: {
+      falsafa: ['بدایه', 'آموزش فلسفه']
+    },
+    experienceHistory: 'برگزاری کارگاه ۳ روزه روش‌شناسی تفکر فلسفی - نتیجه عالی.',
+    notes: 'نویسنده کتاب و مقاله در حوزه فلسفه اسلامی',
+    priority: 2,
+    isActive: true,
+    createdAt: new Date().toISOString()
+  }
+];
+
+export default function TeachersBank() {
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
+  const [selectedPriorityFilter, setSelectedPriorityFilter] = useState<string>('all');
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>('all');
+  const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
+  const [copiedPhoneId, setCopiedPhoneId] = useState<string | null>(null);
+
+  // Modal State
+  const [showModal, setShowModal] = useState<boolean>(false);
+  const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
+
+  // Form State
+  const [fullName, setFullName] = useState<string>('');
+  const [phoneNumber, setPhoneNumber] = useState<string>('');
+  const [photoUrl, setPhotoUrl] = useState<string>('');
+  const [priority, setPriority] = useState<1 | 2 | 3>(1);
+  const [isActive, setIsActive] = useState<boolean>(true);
+  const [selectedCategories, setSelectedCategories] = useState<TeacherCategory[]>([]);
+  const [notes, setNotes] = useState<string>('');
+  const [experienceHistory, setExperienceHistory] = useState<string>('');
+
+  // Detailed Specialties State
+  const [usulSpecialties, setUsulSpecialties] = useState<('رسائل' | 'کفایه' | 'حلقات')[]>([]);
+  const [fiqhSpecialties, setFiqhSpecialties] = useState<('مکاسب')[]>([]);
+  const [falsafaSpecialties, setFalsafaSpecialties] = useState<('بدایه' | 'نهایه' | 'آموزش فلسفه')[]>([]);
+  const [thursdayNote, setThursdayNote] = useState<string>('');
+
+  // Fetch teachers from DB
+  const fetchTeachers = async () => {
+    try {
+      setLoading(true);
+      const docs = (await localDb.getDocs('teachers')) as Teacher[];
+      if (docs.length === 0) {
+        // Seed initial data
+        const created: Teacher[] = [];
+        for (const seed of INITIAL_TEACHERS_SEED) {
+          const docId = await localDb.addDoc('teachers', seed as any);
+          created.push({ id: docId, ...seed } as Teacher);
+        }
+        setTeachers(created);
+      } else {
+        setTeachers(docs);
+      }
+    } catch (err) {
+      console.error('Error fetching teachers:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTeachers();
+  }, []);
+
+  const openAddModal = () => {
+    setEditingTeacher(null);
+    setFullName('');
+    setPhoneNumber('');
+    setPhotoUrl('');
+    setPriority(1);
+    setIsActive(true);
+    setSelectedCategories(['اصول']);
+    setNotes('');
+    setExperienceHistory('');
+    setUsulSpecialties([]);
+    setFiqhSpecialties([]);
+    setFalsafaSpecialties([]);
+    setThursdayNote('');
+    setShowModal(true);
+  };
+
+  const openEditModal = (t: Teacher) => {
+    setEditingTeacher(t);
+    setFullName(t.fullName || '');
+    setPhoneNumber(t.phoneNumber || '');
+    setPhotoUrl(t.photoUrl || '');
+    setPriority((Number(t.priority) || 1) as 1 | 2 | 3);
+    setIsActive(t.isActive !== false);
+    setSelectedCategories(t.categories || []);
+    setNotes(t.notes || '');
+    setExperienceHistory(t.experienceHistory || '');
+    setUsulSpecialties(t.detailedSpecialties?.usul || []);
+    setFiqhSpecialties(t.detailedSpecialties?.fiqh || []);
+    setFalsafaSpecialties(t.detailedSpecialties?.falsafa || []);
+    setThursdayNote(t.detailedSpecialties?.thursdayNote || '');
+    setShowModal(true);
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!fullName.trim()) return;
+
+    const teacherData: Partial<Teacher> = {
+      fullName: fullName.trim(),
+      phoneNumber: phoneNumber.trim(),
+      photoUrl,
+      priority,
+      isActive,
+      categories: selectedCategories,
+      notes: notes.trim(),
+      experienceHistory: experienceHistory.trim(),
+      detailedSpecialties: {
+        usul: (selectedCategories.includes('اصول') || selectedCategories.includes('مشاوره اصول')) ? usulSpecialties : [],
+        fiqh: (selectedCategories.includes('فقه') || selectedCategories.includes('مشاوره فقه')) ? fiqhSpecialties : [],
+        falsafa: (selectedCategories.includes('فلسفه') || selectedCategories.includes('مشاوره فلسفه')) ? falsafaSpecialties : [],
+        thursdayNote: selectedCategories.includes('دروس پنجشنبه') ? thursdayNote.trim() : ''
+      },
+      updatedAt: new Date().toISOString()
+    };
+
+    try {
+      if (editingTeacher) {
+        await localDb.updateDoc('teachers', editingTeacher.id, teacherData);
+      } else {
+        await localDb.addDoc('teachers', {
+          ...teacherData,
+          createdAt: new Date().toISOString()
+        });
+      }
+      setShowModal(false);
+      fetchTeachers();
+    } catch (err) {
+      console.error('Error saving teacher:', err);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (window.confirm('آیا از حذف این استاد از بانک اساتید اطمینان دارید؟')) {
+      try {
+        await localDb.deleteDoc('teachers', id);
+        fetchTeachers();
+      } catch (err) {
+        console.error('Error deleting teacher:', err);
+      }
+    }
+  };
+
+  const handleToggleStatus = async (t: Teacher) => {
+    try {
+      await localDb.updateDoc('teachers', t.id, {
+        isActive: !t.isActive,
+        updatedAt: new Date().toISOString()
+      });
+      fetchTeachers();
+    } catch (err) {
+      console.error('Error toggling status:', err);
+    }
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        alert('حجم عکس نباید بیشتر از ۲ مگابایت باشد.');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPhotoUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const toggleCategory = (cat: TeacherCategory) => {
+    if (selectedCategories.includes(cat)) {
+      setSelectedCategories(selectedCategories.filter(c => c !== cat));
+    } else {
+      setSelectedCategories([...selectedCategories, cat]);
+    }
+  };
+
+  const copyPhoneNumber = (id: string, num?: string) => {
+    if (!num) return;
+    navigator.clipboard.writeText(num);
+    setCopiedPhoneId(id);
+    setTimeout(() => setCopiedPhoneId(null), 2000);
+  };
+
+  // Export to Excel
+  const handleExportExcel = () => {
+    const exportData = filteredTeachers.map((t, idx) => {
+      const specList: string[] = [];
+      if (t.detailedSpecialties?.usul?.length) specList.push(`اصول: ${t.detailedSpecialties.usul.join('، ')}`);
+      if (t.detailedSpecialties?.fiqh?.length) specList.push(`فقه: ${t.detailedSpecialties.fiqh.join('، ')}`);
+      if (t.detailedSpecialties?.falsafa?.length) specList.push(`فلسفه: ${t.detailedSpecialties.falsafa.join('، ')}`);
+      if (t.detailedSpecialties?.thursdayNote) specList.push(`پنج‌شنبه: ${t.detailedSpecialties.thursdayNote}`);
+
+      return {
+        'ردیف': idx + 1,
+        'نام و نام خانوادگی': t.fullName,
+        'شماره تماس': t.phoneNumber || 'ثبت نشده',
+        'تخصص‌های کلی': t.categories?.join(' | ') || '-',
+        'تخصص‌های جزئی': specList.join(' / ') || '-',
+        'سوابق تدریس در مجموعه': t.experienceHistory || '-',
+        'توضیحات': t.notes || '-',
+        'اولویت': `اولویت ${t.priority}`,
+        'وضعیت': t.isActive ? 'فعال' : 'غیرفعال'
+      };
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'بانک اساتید');
+    XLSX.writeFile(workbook, `بانک_اساتید_${new Date().toISOString().slice(0,10)}.xlsx`);
+  };
+
+  // Filter logic
+  const filteredTeachers = teachers.filter(t => {
+    const searchLower = searchTerm.toLowerCase().trim();
+    const matchesSearch = !searchLower || 
+      t.fullName?.toLowerCase().includes(searchLower) ||
+      t.phoneNumber?.includes(searchLower) ||
+      t.notes?.toLowerCase().includes(searchLower) ||
+      t.experienceHistory?.toLowerCase().includes(searchLower) ||
+      t.categories?.some(c => c.toLowerCase().includes(searchLower)) ||
+      t.detailedSpecialties?.usul?.some(u => u.includes(searchLower)) ||
+      t.detailedSpecialties?.falsafa?.some(f => f.includes(searchLower)) ||
+      t.detailedSpecialties?.thursdayNote?.toLowerCase().includes(searchLower);
+
+    const matchesCategory = selectedCategoryFilter === 'all' || t.categories?.includes(selectedCategoryFilter as TeacherCategory);
+    const matchesPriority = selectedPriorityFilter === 'all' || String(t.priority) === selectedPriorityFilter;
+    const matchesStatus = selectedStatusFilter === 'all' || (selectedStatusFilter === 'active' ? t.isActive : !t.isActive);
+
+    return matchesSearch && matchesCategory && matchesPriority && matchesStatus;
+  });
+
+  const getPriorityBadge = (p: 1 | 2 | 3 | string) => {
+    const num = Number(p);
+    if (num === 1) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
+          <Star size={11} className="fill-emerald-600 text-emerald-600" />
+          اولویت ۱ (عالی)
+        </span>
+      );
+    }
+    if (num === 2) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+          <Star size={11} className="text-blue-600" />
+          اولویت ۲ (خوب)
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
+        اولویت ۳
+      </span>
+    );
+  };
+
+  const getCategoryColor = (cat: TeacherCategory) => {
+    switch (cat) {
+      case 'فقه':
+        return 'bg-amber-50 text-amber-800 border-amber-200';
+      case 'اصول':
+        return 'bg-indigo-50 text-indigo-800 border-indigo-200';
+      case 'فلسفه':
+        return 'bg-purple-50 text-purple-800 border-purple-200';
+      case 'مشاوره اصول':
+        return 'bg-sky-50 text-sky-800 border-sky-200';
+      case 'مشاوره فقه':
+        return 'bg-orange-50 text-orange-800 border-orange-200';
+      case 'مشاوره فلسفه':
+        return 'bg-violet-50 text-violet-800 border-violet-200';
+      case 'دروس پنجشنبه':
+        return 'bg-teal-50 text-teal-800 border-teal-200';
+      case 'ویژه':
+        return 'bg-rose-50 text-rose-800 border-rose-200';
+      default:
+        return 'bg-slate-50 text-slate-700 border-slate-200';
+    }
+  };
+
+  const hasUsulOrCounseling = selectedCategories.includes('اصول') || selectedCategories.includes('مشاوره اصول');
+  const hasFiqhOrCounseling = selectedCategories.includes('فقه') || selectedCategories.includes('مشاوره فقه');
+  const hasFalsafaOrCounseling = selectedCategories.includes('فلسفه') || selectedCategories.includes('مشاوره فلسفه');
+  const hasThursday = selectedCategories.includes('دروس پنجشنبه');
+
+  return (
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6" dir="rtl">
+      
+      {/* Header Banner */}
+      <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 rounded-3xl p-6 text-white shadow-xl relative overflow-hidden">
+        <div className="absolute -left-10 -bottom-10 opacity-10 pointer-events-none">
+          <GraduationCap size={240} />
+        </div>
+        
+        <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="space-y-1.5">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-indigo-200 text-xs font-bold backdrop-blur-md">
+              <Award size={14} className="text-amber-400" />
+              <span>بانک جامع اساتید و مدرسین مدعو</span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">بانک اساتید</h1>
+            <p className="text-xs sm:text-sm text-indigo-100 opacity-90 max-w-2xl leading-relaxed">
+              بانک اطلاعات کامل اساتید حوزه علمیه به تفکیک دروس فقه، اصول، فلسفه، مشاوره‌های آموزشی و دروس ۵شنبه جهت دعوت و همکاری
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2.5 self-stretch sm:self-auto shrink-0">
+            <button
+              onClick={handleExportExcel}
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 text-white border border-white/20 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all backdrop-blur-md"
+            >
+              <FileSpreadsheet size={16} className="text-emerald-400" />
+              <span>خروجی اکسل</span>
+            </button>
+
+            <button
+              onClick={openAddModal}
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-2 bg-indigo-500 hover:bg-indigo-400 text-white font-black px-5 py-2.5 rounded-2xl text-xs transition-all shadow-lg hover:shadow-indigo-500/25 active:scale-95"
+            >
+              <UserPlus size={18} />
+              <span>افزودن استاد جدید</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Filters and Controls Bar */}
+      <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          
+          {/* Search Input */}
+          <div className="relative">
+            <Search className="absolute right-3.5 top-3 text-slate-400" size={16} />
+            <input 
+              type="text"
+              placeholder="جستجو نام، شماره، درس یا کتاب..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pr-10 pl-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all"
+            />
+          </div>
+
+          {/* Category Filter */}
+          <div className="relative">
+            <select
+              value={selectedCategoryFilter}
+              onChange={(e) => setSelectedCategoryFilter(e.target.value)}
+              className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+            >
+              <option value="all">همه تخصص‌ها و دسته‌ها</option>
+              {ALL_CATEGORIES.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Priority Filter */}
+          <div className="relative">
+            <select
+              value={selectedPriorityFilter}
+              onChange={(e) => setSelectedPriorityFilter(e.target.value)}
+              className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+            >
+              <option value="all">همه اولویت‌ها</option>
+              <option value="1">اولویت ۱ (عالی)</option>
+              <option value="2">اولویت ۲ (خوب)</option>
+              <option value="3">اولویت ۳ (معمولی)</option>
+            </select>
+          </div>
+
+          {/* Status Filter */}
+          <div className="relative">
+            <select
+              value={selectedStatusFilter}
+              onChange={(e) => setSelectedStatusFilter(e.target.value)}
+              className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+            >
+              <option value="all">همه وضعیت‌ها</option>
+              <option value="active">فقط اساتید فعال</option>
+              <option value="inactive">فقط غیرفعال‌ها</option>
+            </select>
+          </div>
+
+        </div>
+
+        <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs text-slate-500 font-medium">
+          <div>
+            تعداد اساتید یافت‌شده: <span className="font-bold text-indigo-700">{filteredTeachers.length}</span> نفر
+          </div>
+
+          <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl">
+            <button
+              onClick={() => setViewMode('table')}
+              className={cn(
+                "p-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1",
+                viewMode === 'table' ? "bg-white text-indigo-700 shadow-xs" : "text-slate-500 hover:text-slate-800"
+              )}
+            >
+              <List size={15} />
+              <span>جدول کامل</span>
+            </button>
+            <button
+              onClick={() => setViewMode('cards')}
+              className={cn(
+                "p-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1",
+                viewMode === 'cards' ? "bg-white text-indigo-700 shadow-xs" : "text-slate-500 hover:text-slate-800"
+              )}
+            >
+              <Grid size={15} />
+              <span>کارت‌ها</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content: Table or Grid */}
+      {loading ? (
+        <div className="py-20 text-center text-slate-400 font-medium text-xs">
+          در حال دریافت اطلاعات بانک اساتید...
+        </div>
+      ) : filteredTeachers.length === 0 ? (
+        <div className="bg-white rounded-2xl p-12 text-center border border-slate-200 space-y-3">
+          <div className="w-16 h-16 bg-slate-100 text-slate-400 rounded-full flex items-center justify-center mx-auto">
+            <GraduationCap size={32} />
+          </div>
+          <h3 className="text-base font-bold text-slate-800">هیچ استادی یافت نشد</h3>
+          <p className="text-xs text-slate-500 max-w-md mx-auto">
+            می‌توانید فیلترها را تغییر داده یا روی دکمه «افزودن استاد جدید» کلیک کنید.
+          </p>
+          <button
+            onClick={openAddModal}
+            className="inline-flex items-center gap-2 bg-indigo-600 text-white font-bold px-4 py-2 rounded-xl text-xs"
+          >
+            <UserPlus size={16} />
+            <span>ثبت اولین استاد</span>
+          </button>
+        </div>
+      ) : viewMode === 'table' ? (
+        /* TABLE VIEW */
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-right text-xs">
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
+                <tr>
+                  <th className="py-3.5 px-4">#</th>
+                  <th className="py-3.5 px-4">استاد</th>
+                  <th className="py-3.5 px-4">شماره تماس</th>
+                  <th className="py-3.5 px-4">تخصص‌های کلی</th>
+                  <th className="py-3.5 px-4">تخصص‌های جزئی (کتاب/موضوع)</th>
+                  <th className="py-3.5 px-4 min-w-[180px]">سوابق تدریس در مجموعه</th>
+                  <th className="py-3.5 px-4 min-w-[150px]">توضیحات</th>
+                  <th className="py-3.5 px-4">اولویت</th>
+                  <th className="py-3.5 px-4">وضعیت</th>
+                  <th className="py-3.5 px-4 text-center">عملیات</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredTeachers.map((teacher, idx) => {
+                  const spec = teacher.detailedSpecialties;
+
+                  return (
+                    <tr 
+                      key={teacher.id} 
+                      className={cn(
+                        "hover:bg-slate-50/80 transition-colors",
+                        !teacher.isActive && "bg-slate-50/50 opacity-70"
+                      )}
+                    >
+                      <td className="py-3 px-4 font-bold text-slate-400">{idx + 1}</td>
+                      
+                      {/* Name & Photo */}
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-3">
+                          {teacher.photoUrl ? (
+                            <img 
+                              src={teacher.photoUrl} 
+                              alt={teacher.fullName} 
+                              className="w-10 h-10 rounded-full object-cover border border-slate-200 shrink-0" 
+                            />
+                          ) : (
+                            <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-700 font-black flex items-center justify-center text-sm shrink-0 border border-indigo-200">
+                              {teacher.fullName?.charAt(0) || 'ا'}
+                            </div>
+                          )}
+                          <div>
+                            <div className="font-bold text-slate-800 text-sm">{teacher.fullName}</div>
+                            {!teacher.isActive && (
+                              <span className="text-[10px] text-rose-500 font-bold">غیرفعال</span>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Phone Number */}
+                      <td className="py-3 px-4 font-mono font-medium text-slate-700">
+                        {teacher.phoneNumber ? (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => copyPhoneNumber(teacher.id, teacher.phoneNumber)}
+                              className="p-1 text-slate-400 hover:text-indigo-600 rounded transition-colors"
+                              title="کپی شماره"
+                            >
+                              {copiedPhoneId === teacher.id ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+                            </button>
+                            <span>{teacher.phoneNumber}</span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-300">-</span>
+                        )}
+                      </td>
+
+                      {/* Categories (Main Specialties) */}
+                      <td className="py-3 px-4">
+                        <div className="flex flex-wrap gap-1 max-w-[200px]">
+                          {teacher.categories?.map(cat => (
+                            <span 
+                              key={cat} 
+                              className={cn(
+                                "px-2 py-0.5 rounded-md text-[10px] font-bold border",
+                                getCategoryColor(cat)
+                              )}
+                            >
+                              {cat}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+
+                      {/* Detailed Specialties */}
+                      <td className="py-3 px-4">
+                        <div className="space-y-1 text-[11px]">
+                          {spec?.usul && spec.usul.length > 0 && (
+                            <div className="text-indigo-900 font-medium">
+                              <span className="font-bold text-indigo-700">اصول: </span>
+                              {spec.usul.join('، ')}
+                            </div>
+                          )}
+                          {spec?.fiqh && spec.fiqh.length > 0 && (
+                            <div className="text-amber-900 font-medium">
+                              <span className="font-bold text-amber-700">فقه: </span>
+                              {spec.fiqh.join('، ')}
+                            </div>
+                          )}
+                          {spec?.falsafa && spec.falsafa.length > 0 && (
+                            <div className="text-purple-900 font-medium">
+                              <span className="font-bold text-purple-700">فلسفه: </span>
+                              {spec.falsafa.join('، ')}
+                            </div>
+                          )}
+                          {spec?.thursdayNote && (
+                            <div className="text-teal-900 font-medium">
+                              <span className="font-bold text-teal-700">۵شنبه: </span>
+                              {spec.thursdayNote}
+                            </div>
+                          )}
+                          {(!spec?.usul?.length && !spec?.fiqh?.length && !spec?.falsafa?.length && !spec?.thursdayNote) && (
+                            <span className="text-slate-300">-</span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Experience History */}
+                      <td className="py-3 px-4 text-slate-700 max-w-xs">
+                        {teacher.experienceHistory ? (
+                          <div className="line-clamp-2 text-[11px] leading-relaxed bg-slate-50 p-2 rounded-lg border border-slate-100">
+                            {teacher.experienceHistory}
+                          </div>
+                        ) : (
+                          <span className="text-slate-300">-</span>
+                        )}
+                      </td>
+
+                      {/* Notes */}
+                      <td className="py-3 px-4 text-slate-600 max-w-xs">
+                        {teacher.notes ? (
+                          <div className="line-clamp-2 text-[11px] leading-relaxed">
+                            {teacher.notes}
+                          </div>
+                        ) : (
+                          <span className="text-slate-300">-</span>
+                        )}
+                      </td>
+
+                      {/* Priority */}
+                      <td className="py-3 px-4">
+                        {getPriorityBadge(teacher.priority)}
+                      </td>
+
+                      {/* Status Toggle */}
+                      <td className="py-3 px-4">
+                        <button
+                          onClick={() => handleToggleStatus(teacher)}
+                          className={cn(
+                            "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all cursor-pointer",
+                            teacher.isActive 
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100" 
+                              : "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100"
+                          )}
+                        >
+                          {teacher.isActive ? (
+                            <>
+                              <CheckCircle2 size={12} />
+                              <span>فعال</span>
+                            </>
+                          ) : (
+                            <>
+                              <XCircle size={12} />
+                              <span>غیرفعال</span>
+                            </>
+                          )}
+                        </button>
+                      </td>
+
+                      {/* Actions */}
+                      <td className="py-3 px-4 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            onClick={() => openEditModal(teacher)}
+                            className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                            title="ویرایش استاد"
+                          >
+                            <Edit size={16} />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(teacher.id)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                            title="حذف استاد"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        /* CARDS GRID VIEW */
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredTeachers.map((teacher) => {
+            const spec = teacher.detailedSpecialties;
+
+            return (
+              <div 
+                key={teacher.id}
+                className={cn(
+                  "bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md transition-all space-y-4 flex flex-col justify-between relative",
+                  !teacher.isActive && "opacity-60 bg-slate-50/60"
+                )}
+              >
+                <div className="space-y-3">
+                  {/* Top Bar inside Card */}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      {teacher.photoUrl ? (
+                        <img 
+                          src={teacher.photoUrl} 
+                          alt={teacher.fullName} 
+                          className="w-12 h-12 rounded-2xl object-cover border border-slate-200 shrink-0 shadow-xs" 
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white font-black flex items-center justify-center text-lg shrink-0 shadow-xs">
+                          {teacher.fullName?.charAt(0) || 'ا'}
+                        </div>
+                      )}
+                      <div>
+                        <h3 className="font-bold text-slate-800 text-base">{teacher.fullName}</h3>
+                        <p className="text-xs text-slate-500 font-mono flex items-center gap-1 mt-0.5">
+                          <Phone size={12} className="text-slate-400" />
+                          <span>{teacher.phoneNumber || 'بدون شماره'}</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div>
+                      {getPriorityBadge(teacher.priority)}
+                    </div>
+                  </div>
+
+                  {/* Categories */}
+                  <div className="flex flex-wrap gap-1 pt-1">
+                    {teacher.categories?.map(cat => (
+                      <span 
+                        key={cat} 
+                        className={cn(
+                          "px-2.5 py-0.5 rounded-lg text-[10px] font-bold border",
+                          getCategoryColor(cat)
+                        )}
+                      >
+                        {cat}
+                      </span>
+                    ))}
+                  </div>
+
+                  {/* Detailed Specialties */}
+                  {(spec?.usul?.length || spec?.fiqh?.length || spec?.falsafa?.length || spec?.thursdayNote) ? (
+                    <div className="bg-slate-50 rounded-xl p-3 border border-slate-100 text-xs space-y-1.5">
+                      <div className="font-bold text-slate-700 text-[11px] mb-1">تخصص‌های جزئی (کتاب‌ها):</div>
+                      {spec?.usul && spec.usul.length > 0 && (
+                        <div className="text-indigo-900"><span className="font-bold text-indigo-700">اصول:</span> {spec.usul.join('، ')}</div>
+                      )}
+                      {spec?.fiqh && spec.fiqh.length > 0 && (
+                        <div className="text-amber-900"><span className="font-bold text-amber-700">فقه:</span> {spec.fiqh.join('، ')}</div>
+                      )}
+                      {spec?.falsafa && spec.falsafa.length > 0 && (
+                        <div className="text-purple-900"><span className="font-bold text-purple-700">فلسفه:</span> {spec.falsafa.join('، ')}</div>
+                      )}
+                      {spec?.thursdayNote && (
+                        <div className="text-teal-900"><span className="font-bold text-teal-700">۵شنبه:</span> {spec.thursdayNote}</div>
+                      )}
+                    </div>
+                  ) : null}
+
+                  {/* Experience History */}
+                  {teacher.experienceHistory && (
+                    <div className="text-xs space-y-1">
+                      <div className="font-bold text-slate-700 text-[11px] flex items-center gap-1">
+                        <FileText size={12} className="text-indigo-600" />
+                        <span>سوابق تدریس و بازخورد:</span>
+                      </div>
+                      <p className="text-slate-600 text-[11px] leading-relaxed bg-amber-50/50 border border-amber-100 p-2.5 rounded-xl">
+                        {teacher.experienceHistory}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Notes */}
+                  {teacher.notes && (
+                    <p className="text-[11px] text-slate-500 italic">
+                      «{teacher.notes}»
+                    </p>
+                  )}
+                </div>
+
+                {/* Card Footer Actions */}
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                  <button
+                    onClick={() => handleToggleStatus(teacher)}
+                    className={cn(
+                      "inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer",
+                      teacher.isActive 
+                        ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
+                        : "bg-rose-50 text-rose-700 border-rose-200"
+                    )}
+                  >
+                    {teacher.isActive ? 'فعال' : 'غیرفعال'}
+                  </button>
+
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => openEditModal(teacher)}
+                      className="p-2 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors font-bold text-xs flex items-center gap-1"
+                    >
+                      <Edit size={14} />
+                      <span>ویرایش</span>
+                    </button>
+                    <button
+                      onClick={() => handleDelete(teacher.id)}
+                      className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"
+                      title="حذف"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ADD / EDIT TEACHER MODAL */}
+      <AnimatePresence>
+        {showModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl p-6 w-full max-w-2xl border border-slate-200 shadow-2xl my-8 space-y-5"
+              dir="rtl"
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center font-bold">
+                    <GraduationCap size={20} />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-bold text-slate-800">
+                      {editingTeacher ? 'ویرایش مشخصات استاد' : 'افزودن استاد جدید به بانک اساتید'}
+                    </h2>
+                    <p className="text-[11px] text-slate-400 font-medium">اطلاعات تخصص، اولویت و سوابق استاد را وارد کنید</p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setShowModal(false)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl"
+                >
+                  <XCircle size={20} />
+                </button>
+              </div>
+
+              <form onSubmit={handleSave} className="space-y-4">
+                
+                {/* Photo and Primary Spec */}
+                <div className="flex flex-col sm:flex-row items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                  <div className="relative group shrink-0">
+                    {photoUrl ? (
+                      <img 
+                        src={photoUrl} 
+                        alt="استاد" 
+                        className="w-16 h-16 rounded-2xl object-cover border-2 border-indigo-500 shadow-xs" 
+                      />
+                    ) : (
+                      <div className="w-16 h-16 rounded-2xl bg-indigo-100 text-indigo-700 font-black flex items-center justify-center text-xl border border-indigo-200">
+                        {fullName?.charAt(0) || 'استاد'}
+                      </div>
+                    )}
+                    <label className="absolute -bottom-1 -right-1 bg-indigo-600 text-white p-1.5 rounded-xl cursor-pointer hover:bg-indigo-700 transition-all shadow-md">
+                      <Upload size={12} />
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        onChange={handleImageUpload} 
+                        className="hidden" 
+                      />
+                    </label>
+                  </div>
+
+                  <div className="flex-1 w-full space-y-2">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        نام و نام خانوادگی استاد <span className="text-rose-500">*</span>
+                      </label>
+                      <input 
+                        type="text" 
+                        required
+                        placeholder="مثلا: استاد سید علی حسینی"
+                        value={fullName}
+                        onChange={(e) => setFullName(e.target.value)}
+                        className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">شماره تماس</label>
+                        <input 
+                          type="text" 
+                          placeholder="0912..."
+                          value={phoneNumber}
+                          onChange={(e) => setPhoneNumber(e.target.value)}
+                          className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">اولویت پیشنهاد</label>
+                        <select
+                          value={priority}
+                          onChange={(e) => setPriority(Number(e.target.value) as 1 | 2 | 3)}
+                          className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                        >
+                          <option value={1}>اولویت ۱ (عالی)</option>
+                          <option value={2}>اولویت ۲ (خوب)</option>
+                          <option value={3}>اولویت ۳ (معمولی)</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Status Switch */}
+                <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
+                  <span className="text-xs font-bold text-slate-700">وضعیت استاد:</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsActive(!isActive)}
+                    className={cn(
+                      "px-3 py-1 rounded-xl text-xs font-bold transition-all border",
+                      isActive ? "bg-emerald-600 text-white border-emerald-600" : "bg-rose-100 text-rose-700 border-rose-300"
+                    )}
+                  >
+                    {isActive ? 'فعال جهت دعوت' : 'غیرفعال (موقت)'}
+                  </button>
+                </div>
+
+                {/* Main Categories Checkboxes */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                    تخصص‌ها و زمینه‌های تدریس/مشاوره (امکان انتخاب چندتایی):
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+                    {ALL_CATEGORIES.map((cat) => {
+                      const isChecked = selectedCategories.includes(cat);
+                      return (
+                        <label 
+                          key={cat} 
+                          className={cn(
+                            "flex items-center gap-2 p-2 rounded-xl border text-xs font-bold cursor-pointer select-none transition-all",
+                            isChecked 
+                              ? "bg-indigo-600 text-white border-indigo-600 shadow-2xs" 
+                              : "bg-white border-slate-200 text-slate-700 hover:bg-slate-100"
+                          )}
+                        >
+                          <input 
+                            type="checkbox" 
+                            checked={isChecked}
+                            onChange={() => toggleCategory(cat)}
+                            className="w-3.5 h-3.5 accent-indigo-600 rounded"
+                          />
+                          <span className="text-[11px]">{cat}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Detailed Specialties (Conditional Sections) */}
+                
+                {/* 1. Usul (اصول / مشاوره اصول) */}
+                {hasUsulOrCounseling && (
+                  <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-2xl space-y-1.5">
+                    <label className="block text-xs font-bold text-indigo-900">
+                      کتاب‌ها و مباحث مناسب تدریس اصول / مشاوره اصول:
+                    </label>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {(['رسائل', 'کفایه', 'حلقات'] as const).map(book => {
+                        const isChecked = usulSpecialties.includes(book);
+                        return (
+                          <label key={book} className={cn(
+                            "flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold cursor-pointer transition-all",
+                            isChecked ? "bg-indigo-700 text-white border-indigo-700" : "bg-white border-indigo-200 text-indigo-800"
+                          )}>
+                            <input 
+                              type="checkbox" 
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) setUsulSpecialties([...usulSpecialties, book]);
+                                else setUsulSpecialties(usulSpecialties.filter(b => b !== book));
+                              }}
+                              className="w-3.5 h-3.5 accent-indigo-600"
+                            />
+                            <span>{book}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* 2. Fiqh (فقه / مشاوره فقه) */}
+                {hasFiqhOrCounseling && (
+                  <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} className="p-3 bg-amber-50/70 border border-amber-200 rounded-2xl space-y-1.5">
+                    <label className="block text-xs font-bold text-amber-900">
+                      کتاب‌های مناسب تدریس فقه / مشاوره فقه:
+                    </label>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {(['مکاسب'] as const).map(book => {
+                        const isChecked = fiqhSpecialties.includes(book);
+                        return (
+                          <label key={book} className={cn(
+                            "flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold cursor-pointer transition-all",
+                            isChecked ? "bg-amber-700 text-white border-amber-700" : "bg-white border-amber-200 text-amber-800"
+                          )}>
+                            <input 
+                              type="checkbox" 
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) setFiqhSpecialties([...fiqhSpecialties, book]);
+                                else setFiqhSpecialties(fiqhSpecialties.filter(b => b !== book));
+                              }}
+                              className="w-3.5 h-3.5 accent-amber-600"
+                            />
+                            <span>{book}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* 3. Falsafa (فلسفه / مشاوره فلسفه) */}
+                {hasFalsafaOrCounseling && (
+                  <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} className="p-3 bg-purple-50/70 border border-purple-200 rounded-2xl space-y-1.5">
+                    <label className="block text-xs font-bold text-purple-900">
+                      کتاب‌های مناسب تدریس فلسفه / مشاوره فلسفه:
+                    </label>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {(['بدایه', 'نهایه', 'آموزش فلسفه'] as const).map(book => {
+                        const isChecked = falsafaSpecialties.includes(book);
+                        return (
+                          <label key={book} className={cn(
+                            "flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold cursor-pointer transition-all",
+                            isChecked ? "bg-purple-700 text-white border-purple-700" : "bg-white border-purple-200 text-purple-800"
+                          )}>
+                            <input 
+                              type="checkbox" 
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) setFalsafaSpecialties([...falsafaSpecialties, book]);
+                                else setFalsafaSpecialties(falsafaSpecialties.filter(b => b !== book));
+                              }}
+                              className="w-3.5 h-3.5 accent-purple-600"
+                            />
+                            <span>{book}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* 4. Thursday Classes Note */}
+                {hasThursday && (
+                  <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} className="p-3 bg-teal-50/70 border border-teal-200 rounded-2xl space-y-1.5">
+                    <label className="block text-xs font-bold text-teal-900">
+                      مناسب برای چه برنامه‌ها یا دروس ۵شنبه‌ها؟ (دستی بنویسید)
+                    </label>
+                    <input 
+                      type="text" 
+                      placeholder="مثلا: کارگاه روش تحقیق، درس اخلاق کاربردی، تفسیر قرآن..."
+                      value={thursdayNote}
+                      onChange={(e) => setThursdayNote(e.target.value)}
+                      className="w-full px-3.5 py-2 bg-white border border-teal-200 rounded-xl text-xs font-medium outline-none focus:ring-2 focus:ring-teal-500"
+                    />
+                  </motion.div>
+                )}
+
+                {/* Experience History */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-800 mb-1">
+                    سوابق تدریس در مجموعه و بازخوردها:
+                  </label>
+                  <textarea 
+                    rows={2}
+                    placeholder="بنویسید چه درسی تا حالا درس گفته تو مجموعه و نتیجه چی بوده..."
+                    value={experienceHistory}
+                    onChange={(e) => setExperienceHistory(e.target.value)}
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white resize-none"
+                  />
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-800 mb-1">توضیحات و ملاحظات تکمیلی:</label>
+                  <textarea 
+                    rows={2}
+                    placeholder="ساعات ترجیحی حضور، نکات اخلاقی، ملاحظات مالی..."
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white resize-none"
+                  />
+                </div>
+
+                {/* Form Buttons */}
+                <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setShowModal(false)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-all"
+                  >
+                    انصراف
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-xl text-xs transition-all shadow-md active:scale-95"
+                  >
+                    {editingTeacher ? 'بروزرسانی اطلاعات استاد' : 'ذخیره استاد جدید'}
+                  </button>
+                </div>
+
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+    </div>
+  );
+}

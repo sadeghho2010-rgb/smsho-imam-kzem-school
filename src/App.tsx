@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import StudentList from './components/StudentList';
 import Programs from './components/Programs';
+import StudentSchedule from './components/StudentSchedule';
 import ResearchAndFeedback from './components/ResearchAndFeedback';
 import AttendanceAndStats from './components/AttendanceAndStats';
 import StudyStats from './components/StudyStats';
@@ -17,6 +18,7 @@ import TodoList from './components/TodoList';
 import StudentComments from './components/StudentComments';
 import StudyDiscussion from './components/StudyDiscussion';
 import AcademicCalendar from './components/AcademicCalendar';
+import TeachersBank from './components/TeachersBank';
 import MentorSelectorModal from './components/MentorSelectorModal';
 import { MentorProvider, useMentor } from './context/MentorContext';
 import { motion, AnimatePresence } from 'motion/react';
@@ -60,6 +62,8 @@ function AppContent() {
         return <StudyDiscussion initialStudentId={selectedStudentIdForTab} />;
       case 'programs':
         return <Programs />;
+      case 'student-schedule':
+        return <StudentSchedule initialStudentId={selectedStudentIdForTab} />;
       case 'research':
         return <ResearchAndFeedback initialStudentId={selectedStudentIdForTab} />;
       case 'attendance':
@@ -74,6 +78,8 @@ function AppContent() {
         return <AcademicCalendar />;
       case 'summary':
         return <Summary onNavigate={handleNavigate} initialStudentId={selectedStudentIdForTab} />;
+      case 'teachers-bank':
+        return <TeachersBank />;
       case 'backup':
         return <BackupAndRestore />;
       case 'manager-files':
@@ -126,11 +132,13 @@ function AppContent() {
                    activeTab === 'active-students' ? 'لیست کاربران فعال' :
                    activeTab === 'manager-files' ? (currentMentor.isHeadManager ? 'ارسال فایل برای کاربران' : 'فایل‌های ارسالی مدیر') :
                    activeTab === 'programs' ? 'برنامه‌های آموزشی' :
+                   activeTab === 'student-schedule' ? 'برنامه هفتگی و درسی طلاب' :
                    activeTab === 'research' ? 'بخش پژوهش و مقالات' :
                    activeTab === 'attendance' ? 'حضور و غیاب' :
                    activeTab === 'comments' ? 'نظرات و صحبت‌ها' :
                    activeTab === 'stats' ? 'آمار و گزارشات' :
-                   activeTab === 'summary' ? 'جمع‌بندی نهایی' : 'پشتیبان‌گیری'}
+                   activeTab === 'summary' ? 'جمع‌بندی نهایی' :
+                   activeTab === 'teachers-bank' ? 'بانک جامع اساتید و مدرسین' : 'پشتیبان‌گیری'}
                 </h2>
                 {activeTab !== 'students' && (
                   <span className="text-[10px] text-slate-400 font-medium">

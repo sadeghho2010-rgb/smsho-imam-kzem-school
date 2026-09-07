@@ -29,7 +29,7 @@ import * as XLSX from 'xlsx';
 import { Program, Student, Enrollment } from '../types';
 import { localDb } from '../lib/localDb';
 import { useMentor, getStudentMentorKey } from '../context/MentorContext';
-import { cn } from '../lib/utils';
+import { cn, WEEK_DAYS, getProgramDays } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { exportElementToPdf } from '../lib/pdfExport';
 import { exportElementToImage } from '../lib/imageExport';
@@ -42,9 +42,14 @@ export default function Programs() {
   const [loading, setLoading] = useState(true);
   
   // Modals state
+  const DEFAULT_MAIN_DAYS = ['شنبه', 'یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه'];
+
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingProgram, setEditingProgram] = useState<Program | null>(null);
   const [selectedProgramId, setSelectedProgramId] = useState<string | null>(null);
+
+  const [addModalDays, setAddModalDays] = useState<string[]>(DEFAULT_MAIN_DAYS);
+  const [editModalDays, setEditModalDays] = useState<string[]>([]);
   
   const [newProgram, setNewProgram] = useState<Partial<Program>>({ 
     title: '', 
@@ -166,12 +171,16 @@ export default function Programs() {
   const handleAddProgram = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const dayStr = addModalDays.join(' ، ');
       await localDb.addDoc('programs', {
         ...newProgram,
+        days: addModalDays,
+        day: dayStr,
         mentorId: currentMentorId
       });
       setShowAddModal(false);
       setNewProgram({ title: '', type: 'اصلی', day: '', time: '', teacher: '', parentProgramId: '' });
+      setAddModalDays(DEFAULT_MAIN_DAYS);
       fetchData();
     } catch (error) {
       console.error("Error adding program:", error);
@@ -182,10 +191,12 @@ export default function Programs() {
     e.preventDefault();
     if (!editingProgram) return;
     try {
+      const dayStr = editModalDays.join(' ، ');
       await localDb.updateDoc('programs', editingProgram.id, {
         title: editingProgram.title,
         type: editingProgram.type,
-        day: editingProgram.day,
+        days: editModalDays,
+        day: dayStr,
         time: editingProgram.time,
         teacher: editingProgram.teacher,
         parentProgramId: editingProgram.type === 'مشاوره' ? (editingProgram.parentProgramId || '') : ''
@@ -535,6 +546,7 @@ export default function Programs() {
                           <button 
                             onClick={() => {
                               setEditingProgram(program);
+                              setEditModalDays(getProgramDays(program));
                             }}
                             className="p-1.5 text-slate-400 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-all"
                             title="ویرایش مشخصات برنامه"
@@ -1059,7 +1071,17 @@ export default function Programs() {
                   <select 
                     className="w-full px-4 py-2 text-xs border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 bg-white font-medium"
                     value={newProgram.type}
-                    onChange={(e) => setNewProgram({...newProgram, type: e.target.value as any})}
+                    onChange={(e) => {
+                      const selType = e.target.value as any;
+                      setNewProgram({...newProgram, type: selType});
+                      if (selType === 'اصلی') {
+                        setAddModalDays(DEFAULT_MAIN_DAYS);
+                      } else if (selType === 'دروس 5 شنبه') {
+                        setAddModalDays(['پنج‌شنبه']);
+                      } else if (selType === 'پژوهش' || selType === 'سایر') {
+                        setAddModalDays([]);
+                      }
+                    }}
                   >
                     <option value="اصلی">درس اصلی</option>
                     <option value="مشاوره">مشاوره</option>
@@ -1091,27 +1113,60 @@ export default function Programs() {
                   </motion.div>
                 )}
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">روز برگزاری</label>
-                    <input 
-                      type="text" 
-                      placeholder="مثلا: شنبه"
-                      className="w-full px-4 py-2 text-xs border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
-                      value={newProgram.day}
-                      onChange={(e) => setNewProgram({...newProgram, day: e.target.value})}
-                    />
+                {/* Day Checkboxes */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    روزهای برگزاری کلاس در هفته:
+                  </label>
+                  <div className="grid grid-cols-3 gap-1.5 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                    {WEEK_DAYS.map(day => {
+                      const isChecked = addModalDays.includes(day);
+                      return (
+                        <label 
+                          key={day} 
+                          className={cn(
+                            "flex items-center gap-1.5 p-2 rounded-lg border text-xs font-bold cursor-pointer select-none transition-all",
+                            isChecked 
+                              ? "bg-indigo-600 text-white border-indigo-600 shadow-2xs" 
+                              : "bg-white border-slate-200 text-slate-600 hover:bg-slate-100"
+                          )}
+                        >
+                          <input 
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setAddModalDays([...addModalDays, day]);
+                              } else {
+                                setAddModalDays(addModalDays.filter(d => d !== day));
+                              }
+                            }}
+                            className="w-3.5 h-3.5 rounded border-slate-300 focus:ring-indigo-500 accent-indigo-600"
+                          />
+                          <span className="text-[11px]">{day}</span>
+                        </label>
+                      );
+                    })}
                   </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">زمان برگزاری</label>
-                    <input 
-                      type="text" 
-                      placeholder="مثلا: ۰۸:۰۰"
-                      className="w-full px-4 py-2 text-xs border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
-                      value={newProgram.time}
-                      onChange={(e) => setNewProgram({...newProgram, time: e.target.value})}
-                    />
-                  </div>
+                  <p className="text-[10px] text-slate-400 font-medium mt-1">
+                    {newProgram.type === 'اصلی' 
+                      ? 'دروس اصلی به‌صورت پیش‌فرض شنبه تا چهارشنبه هستند، می‌توانید روزهای دلخواه را تیک بزنید.' 
+                      : newProgram.type === 'دروس 5 شنبه'
+                      ? 'برنامه‌های پنج‌شنبه به‌صورت پیش‌فرض در روز پنج‌شنبه برگزار می‌شوند.'
+                      : 'روزهای برگزاری این کلاس را با تیک مشخص نمایید.'
+                    }
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">زمان برگزاری</label>
+                  <input 
+                    type="text" 
+                    placeholder="مثلا: ۰۸:۰۰"
+                    className="w-full px-4 py-2 text-xs border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
+                    value={newProgram.time}
+                    onChange={(e) => setNewProgram({...newProgram, time: e.target.value})}
+                  />
                 </div>
 
                 <div>
@@ -1174,7 +1229,15 @@ export default function Programs() {
                   <select 
                     className="w-full px-4 py-2 text-xs border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 bg-white font-medium"
                     value={editingProgram.type}
-                    onChange={(e) => setEditingProgram({...editingProgram, type: e.target.value as any})}
+                    onChange={(e) => {
+                      const selType = e.target.value as any;
+                      setEditingProgram({...editingProgram, type: selType});
+                      if (selType === 'اصلی' && editModalDays.length === 0) {
+                        setEditModalDays(DEFAULT_MAIN_DAYS);
+                      } else if (selType === 'دروس 5 شنبه' && editModalDays.length === 0) {
+                        setEditModalDays(['پنج‌شنبه']);
+                      }
+                    }}
                   >
                     <option value="اصلی">درس اصلی</option>
                     <option value="مشاوره">مشاوره</option>
@@ -1206,25 +1269,51 @@ export default function Programs() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">روز برگزاری</label>
-                    <input 
-                      type="text" 
-                      className="w-full px-4 py-2 text-xs border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
-                      value={editingProgram.day || ''}
-                      onChange={(e) => setEditingProgram({...editingProgram, day: e.target.value})}
-                    />
+                {/* Day Checkboxes */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    روزهای برگزاری کلاس در هفته:
+                  </label>
+                  <div className="grid grid-cols-3 gap-1.5 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                    {WEEK_DAYS.map(day => {
+                      const isChecked = editModalDays.includes(day);
+                      return (
+                        <label 
+                          key={day} 
+                          className={cn(
+                            "flex items-center gap-1.5 p-2 rounded-lg border text-xs font-bold cursor-pointer select-none transition-all",
+                            isChecked 
+                              ? "bg-indigo-600 text-white border-indigo-600 shadow-2xs" 
+                              : "bg-white border-slate-200 text-slate-600 hover:bg-slate-100"
+                          )}
+                        >
+                          <input 
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setEditModalDays([...editModalDays, day]);
+                              } else {
+                                setEditModalDays(editModalDays.filter(d => d !== day));
+                              }
+                            }}
+                            className="w-3.5 h-3.5 rounded border-slate-300 focus:ring-indigo-500 accent-indigo-600"
+                          />
+                          <span className="text-[11px]">{day}</span>
+                        </label>
+                      );
+                    })}
                   </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">زمان برگزاری</label>
-                    <input 
-                      type="text" 
-                      className="w-full px-4 py-2 text-xs border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
-                      value={editingProgram.time || ''}
-                      onChange={(e) => setEditingProgram({...editingProgram, time: e.target.value})}
-                    />
-                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">زمان برگزاری</label>
+                  <input 
+                    type="text" 
+                    className="w-full px-4 py-2 text-xs border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
+                    value={editingProgram.time || ''}
+                    onChange={(e) => setEditingProgram({...editingProgram, time: e.target.value})}
+                  />
                 </div>
 
                 <div>

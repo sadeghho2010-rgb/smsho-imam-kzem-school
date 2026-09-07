@@ -29,6 +29,7 @@ export interface Program {
   title: string;
   type: ProgramType;
   day?: string;
+  days?: string[]; // List of specific days e.g. ['شنبه', 'یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه']
   time?: string;
   teacher?: string;
   mentorId?: string;
@@ -267,3 +268,36 @@ export interface AcademicCalendarExportPackage {
   holidayTypes: AcademicHolidayType[];
   subPeriods?: AcademicSubPeriod[];
 }
+
+export type TeacherCategory = 
+  | 'فقه'
+  | 'اصول'
+  | 'فلسفه'
+  | 'مشاوره اصول'
+  | 'مشاوره فقه'
+  | 'مشاوره فلسفه'
+  | 'دروس پنجشنبه'
+  | 'ویژه';
+
+export interface TeacherDetailedSpecialties {
+  usul?: ('رسائل' | 'کفایه' | 'حلقات')[];
+  fiqh?: ('مکاسب')[];
+  falsafa?: ('بدایه' | 'نهایه' | 'آموزش فلسفه')[];
+  thursdayNote?: string;
+}
+
+export interface Teacher {
+  id: string;
+  fullName: string;
+  phoneNumber?: string;
+  photoUrl?: string;
+  categories: TeacherCategory[];
+  detailedSpecialties?: TeacherDetailedSpecialties;
+  notes?: string;
+  experienceHistory?: string;
+  priority: 1 | 2 | 3 | '1' | '2' | '3';
+  isActive: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
