@@ -805,7 +805,27 @@ class LocalDatabase {
     const mentorExams = allExams.filter((e) => studentIds.has(e.studentId));
     const mentorEnrollments = allEnrollments.filter((e) => studentIds.has(e.studentId));
     const relevantProgramIds = new Set(mentorEnrollments.map((e) => e.programId));
-    const mentorPrograms = allPrograms.filter((p) => relevantProgramIds.has(p.id) || mentorId === 'shahpoori');
+    
+    // Include programs created by mentor, enrolled by mentor's students, or connected via hierarchy (parent/child)
+    const mentorPrograms = allPrograms.filter((p) => {
+      if (mentorId === 'shahpoori') return true;
+      if (p.mentorId === mentorId) return true;
+      if (relevantProgramIds.has(p.id)) return true;
+      
+      // If any of mentor's relevant programs is a child of this program
+      const isParentOfRelevant = allPrograms.some(
+        (childP) => (childP.mentorId === mentorId || relevantProgramIds.has(childP.id)) && childP.parentProgramId === p.id
+      );
+      if (isParentOfRelevant) return true;
+
+      // If this program is a counseling child of any of mentor's relevant programs
+      if (p.parentProgramId) {
+        const parentP = allPrograms.find((parent) => parent.id === p.parentProgramId);
+        if (parentP && (parentP.mentorId === mentorId || relevantProgramIds.has(parentP.id))) return true;
+      }
+
+      return false;
+    });
     const mentorTodos = allTodos.filter((t) => mentorId === 'shahpoori' || (t.studentId && studentIds.has(t.studentId)) || t.mentorId === mentorId);
     const mentorDiscussions = allDiscussions.filter((g) => {
       if (mentorId === 'shahpoori') return true;
@@ -945,6 +965,14 @@ class LocalDatabase {
     const studentExams = allExams.filter((e) => e.studentId === studentId);
     const studentEnrollments = allEnrollments.filter((e) => e.studentId === studentId);
     const relevantProgramIds = new Set(studentEnrollments.map((e) => e.programId));
+
+    // Also include parent programs if student is enrolled in a linked counseling program
+    allPrograms.forEach((p) => {
+      if (relevantProgramIds.has(p.id) && p.parentProgramId) {
+        relevantProgramIds.add(p.parentProgramId);
+      }
+    });
+
     const studentPrograms = allPrograms.filter((p) => relevantProgramIds.has(p.id));
     const studentTodos = allTodos.filter((t) => t.studentId === studentId);
     const studentDiscussions = allDiscussions.filter((g) => Array.isArray(g.memberStudentIds) && g.memberStudentIds.includes(studentId));

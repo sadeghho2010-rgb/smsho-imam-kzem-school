@@ -21,7 +21,9 @@ import {
   Download,
   CheckCircle2,
   Layers,
-  HelpCircle
+  HelpCircle,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Program, Student, Enrollment } from '../types';
@@ -56,6 +58,10 @@ export default function Programs() {
   const [showEnrollModal, setShowEnrollModal] = useState(false);
   const [selectedEnrollments, setSelectedEnrollments] = useState<string[]>([]);
   const [enrollSearchTerm, setEnrollSearchTerm] = useState('');
+
+  // Hierarchy Display Toggles
+  const [showMainStudents, setShowMainStudents] = useState<boolean>(true);
+  const [showCounselingStudents, setShowCounselingStudents] = useState<boolean>(true);
 
   // Export states & refs
   const [isExportingImage, setIsExportingImage] = useState(false);
@@ -634,7 +640,7 @@ export default function Programs() {
               onClick={handleExportHierarchyImage}
               disabled={isExportingImage || programs.length === 0}
               className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-slate-950 font-black text-xs rounded-xl transition-all shadow-sm disabled:opacity-50"
-              title="دانلود فایل تصویری کیفیت بالا PNG از نمودار"
+              title="دانلود فایل تصویری کیفیت بالا PNG از نمودار (با اعمال فیلترهای نمایش)"
             >
               <ImageIcon size={16} />
               <span>{isExportingImage ? 'در حال خروجی...' : 'خروجی عکس (PNG)'}</span>
@@ -644,11 +650,47 @@ export default function Programs() {
               onClick={handleExportHierarchyPdf}
               disabled={isExportingHierarchyPdf || programs.length === 0}
               className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xs rounded-xl transition-all shadow-sm disabled:opacity-50"
-              title="خروجی فایل PDF افقی از نمودار"
+              title="خروجی فایل PDF افقی از نمودار (با اعمال فیلترهای نمایش)"
             >
               <FileText size={16} />
               <span>{isExportingHierarchyPdf ? 'در حال خروجی...' : 'خروجی PDF نمودار'}</span>
             </button>
+          </div>
+        </div>
+
+        {/* Display Filter Toggles Panel */}
+        <div className="bg-slate-100/90 p-4 rounded-2xl border border-slate-200/90 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-xs">
+          <div className="flex items-center gap-2 font-black text-slate-800">
+            <Eye size={18} className="text-indigo-600" />
+            <span>تنظیم فیلتر نمایش اسامی طلاب در نمودار و خروجی‌های تصویر و PDF:</span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+            <label className={cn(
+              "flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer select-none",
+              showMainStudents ? "bg-indigo-50 border-indigo-300 text-indigo-950 shadow-2xs" : "bg-white border-slate-200 text-slate-400"
+            )}>
+              <input 
+                type="checkbox"
+                checked={showMainStudents}
+                onChange={(e) => setShowMainStudents(e.target.checked)}
+                className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+              />
+              <span>نمایش اسامی طلاب «درس اصلی»</span>
+            </label>
+
+            <label className={cn(
+              "flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer select-none",
+              showCounselingStudents ? "bg-amber-50 border-amber-300 text-amber-950 shadow-2xs" : "bg-white border-slate-200 text-slate-400"
+            )}>
+              <input 
+                type="checkbox"
+                checked={showCounselingStudents}
+                onChange={(e) => setShowCounselingStudents(e.target.checked)}
+                className="w-4 h-4 text-amber-600 rounded border-slate-300 focus:ring-amber-500"
+              />
+              <span>نمایش اسامی طلاب «درس مشاوره»</span>
+            </label>
           </div>
         </div>
 
@@ -702,21 +744,30 @@ export default function Programs() {
                           </div>
                         </div>
 
-                        {/* Main Class Enrolled Students */}
-                        <div className="space-y-1.5">
-                          <span className="text-[11px] font-bold text-indigo-200 block">طلاب شرکت‌کننده در این درس اصلی:</span>
-                          {mainStudents.length > 0 ? (
-                            <div className="flex flex-wrap gap-1.5">
-                              {mainStudents.map(st => (
-                                <span key={st.id} className="px-2.5 py-1 bg-indigo-900/90 text-indigo-100 rounded-lg text-xs font-bold border border-indigo-700">
-                                  {st.name} <span className="text-indigo-300 text-[10px]">(پایه {st.grade})</span>
-                                </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="text-xs text-indigo-300 italic">هنوز طلبی برای این درس ثبت نشده است.</span>
-                          )}
-                        </div>
+                        {/* Main Class Enrolled Students (Filtered by Toggle) */}
+                        {showMainStudents ? (
+                          <div className="space-y-1.5">
+                            <span className="text-[11px] font-bold text-indigo-200 block">
+                              طلاب شرکت‌کننده در این درس اصلی ({mainStudents.length} نفر):
+                            </span>
+                            {mainStudents.length > 0 ? (
+                              <div className="flex flex-wrap gap-1.5">
+                                {mainStudents.map(st => (
+                                  <span key={st.id} className="px-2.5 py-1 bg-indigo-900/90 text-indigo-100 rounded-lg text-xs font-bold border border-indigo-700">
+                                    {st.name} <span className="text-indigo-300 text-[10px]">(پایه {st.grade})</span>
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-indigo-300 italic">هنوز طلبی برای این درس ثبت نشده است.</span>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="text-[11px] font-bold text-indigo-200 bg-indigo-900/50 p-2 rounded-xl border border-indigo-800 flex items-center justify-between">
+                            <span>تعداد طلاب شرکت‌کننده در درس اصلی: <b className="text-white font-black">{mainStudents.length} نفر</b></span>
+                            <span className="text-[10px] text-indigo-300 italic">(نمایش اسامی طلاب درس اصلی فیلتر/مخفی شده است)</span>
+                          </div>
+                        )}
                       </div>
 
                       {/* Tree Branch Connectors & Child Counseling Nodes */}
@@ -774,21 +825,30 @@ export default function Programs() {
                                       <span>زمان: {counselingProg.day || ''} - {counselingProg.time || ''}</span>
                                     </div>
 
-                                    {/* Enrolled Students in this Counseling Class */}
-                                    <div className="pt-1 space-y-1">
-                                      <span className="text-[10px] font-bold text-slate-500 block">طلاب شرکت‌کننده ({counselingStudents.length} نفر):</span>
-                                      {counselingStudents.length > 0 ? (
-                                        <div className="flex flex-wrap gap-1">
-                                          {counselingStudents.map(st => (
-                                            <span key={st.id} className="px-2 py-0.5 bg-amber-50 text-amber-950 rounded-md text-[11px] font-bold border border-amber-200">
-                                              {st.name}
-                                            </span>
-                                          ))}
-                                        </div>
-                                      ) : (
-                                        <span className="text-[11px] text-slate-400 italic">طلبه‌ای ثبت‌نام نشده است</span>
-                                      )}
-                                    </div>
+                                    {/* Enrolled Students in this Counseling Class (Filtered by Toggle) */}
+                                    {showCounselingStudents ? (
+                                      <div className="pt-1 space-y-1">
+                                        <span className="text-[10px] font-bold text-slate-500 block">
+                                          طلاب شرکت‌کننده ({counselingStudents.length} نفر):
+                                        </span>
+                                        {counselingStudents.length > 0 ? (
+                                          <div className="flex flex-wrap gap-1">
+                                            {counselingStudents.map(st => (
+                                              <span key={st.id} className="px-2 py-0.5 bg-amber-50 text-amber-950 rounded-md text-[11px] font-bold border border-amber-200">
+                                                {st.name}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        ) : (
+                                          <span className="text-[11px] text-slate-400 italic">طلبه‌ای ثبت‌نام نشده است</span>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <div className="text-[11px] font-bold text-amber-900 pt-1 bg-amber-50/60 p-2 rounded-lg border border-amber-100 flex items-center justify-between">
+                                        <span>تعداد طلاب مشاوره: <b className="text-slate-900 font-black">{counselingStudents.length} نفر</b></span>
+                                        <span className="text-[10px] text-amber-700 italic">(اسامی مخفی)</span>
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                               );
@@ -833,7 +893,7 @@ export default function Programs() {
                           <span>زمان: {cp.day} {cp.time}</span>
                         </div>
                         <div className="text-slate-500 font-bold text-[10px]">
-                          تعداد طلاب: {cpStudents.length} نفر ({cpStudents.map(s => s.name).join(' ، ') || 'بدون عضو'})
+                          تعداد طلاب: {cpStudents.length} نفر {showCounselingStudents && cpStudents.length > 0 ? `(${cpStudents.map(s => s.name).join(' ، ')})` : ''}
                         </div>
                       </div>
                     );
@@ -934,8 +994,11 @@ export default function Programs() {
                   </div>
 
                   <div className="text-xs text-slate-700">
-                    <b>طلاب شرکت‌کننده در درس اصلی: </b>
-                    {mainStudents.map(s => s.name).join(' ، ') || 'طلبه‌ای ثبت نشده'}
+                    <b>طلاب شرکت‌کننده در درس اصلی ({mainStudents.length} نفر): </b>
+                    {showMainStudents
+                      ? (mainStudents.map(s => s.name).join(' ، ') || 'طلبه‌ای ثبت نشده')
+                      : <span className="text-slate-500 font-bold">(نمایش اسامی فیلتر گردیده است)</span>
+                    }
                   </div>
 
                   {linkedCounselings.length > 0 && (
@@ -949,7 +1012,11 @@ export default function Programs() {
                               مشاوره: «{cp.title}» (استاد: {cp.teacher || '---'}) - زمان: {cp.day} {cp.time}
                             </div>
                             <div className="text-slate-600">
-                              <b>طلاب مشاوره: </b>{cpStudents.map(s => s.name).join(' ، ') || 'طلبه‌ای ثبت نشده'}
+                              <b>طلاب مشاوره ({cpStudents.length} نفر): </b>
+                              {showCounselingStudents
+                                ? (cpStudents.map(s => s.name).join(' ، ') || 'طلبه‌ای ثبت نشده')
+                                : <span className="text-slate-500 font-bold">(نمایش اسامی فیلتر گردیده است)</span>
+                              }
                             </div>
                           </div>
                         );
