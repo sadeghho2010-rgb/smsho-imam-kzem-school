@@ -23,7 +23,8 @@ import {
   Tag,
   BookOpen,
   FileText,
-  Eye
+  Eye,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
@@ -33,9 +34,11 @@ import {
   AcademicHolidayItem, 
   AcademicHolidayType,
   AcademicSubPeriod,
+  AcademicWeeklyProgram,
   AcademicCalendarExportPackage,
   ThursdayMode,
-  ThursdayOverride
+  ThursdayOverride,
+  WeekDayName
 } from '../types';
 import { 
   getTodayShamsi, 
@@ -90,7 +93,49 @@ export default function AcademicCalendar() {
   const [loading, setLoading] = useState(true);
 
   // Active Main View Tab
-  const [activeTab, setActiveTab] = useState<'calendar' | 'sub_periods' | 'thursdays' | 'holidays_list' | 'stats_tables' | 'study_days'>('calendar');
+  const [activeTab, setActiveTab] = useState<'calendar' | 'sub_periods' | 'thursdays' | 'holidays_list' | 'stats_tables' | 'study_days' | 'recurring_programs'>('calendar');
+
+  // Weekly Programs State
+  const [weeklyPrograms, setWeeklyPrograms] = useState<AcademicWeeklyProgram[]>([]);
+  const [showWeeklyProgramModal, setShowWeeklyProgramModal] = useState(false);
+  const [editingWeeklyProgram, setEditingWeeklyProgram] = useState<AcademicWeeklyProgram | null>(null);
+  const [selectedProgramForDetails, setSelectedProgramForDetails] = useState<AcademicWeeklyProgram | null>(null);
+
+  const [weeklyProgramForm, setWeeklyProgramForm] = useState<{
+    title: string;
+    scheduleType: 'recurring' | 'custom_dates';
+    dayOfWeek: string;
+    daysOfWeek: WeekDayName[];
+    specificDates: string[];
+    newCustomDateInput: string;
+    startDate: string;
+    endDate: string;
+    time: string;
+    locationOrTeacher: string;
+    description: string;
+    color: string;
+  }>({
+    title: 'کارگاه مهارتی / جلسه علمی',
+    scheduleType: 'recurring',
+    dayOfWeek: 'دوشنبه',
+    daysOfWeek: ['دوشنبه'],
+    specificDates: [],
+    newCustomDateInput: getTodayShamsi(),
+    startDate: '1405/06/15',
+    endDate: '1406/03/20',
+    time: '10:00 تا 11:30',
+    locationOrTeacher: 'سالن همایش / استاد مربوطه',
+    description: 'برنامه آموزشی یا پژوهشی دوره',
+    color: 'purple'
+  });
+
+  // Custom Delete Confirmation Dialog State
+  const [deleteConfirmModal, setDeleteConfirmModal] = useState<{
+    isOpen: boolean;
+    type: 'weekly_program' | 'sub_period' | 'period' | 'holiday';
+    id: string;
+    title: string;
+  } | null>(null);
 
   // Selected Month for Calendar Grid view
   const [selectedMonthIndex, setSelectedMonthIndex] = useState<number>(0);
@@ -193,6 +238,7 @@ export default function AcademicCalendar() {
       const storedHolidays = await localDb.getDocs<AcademicHolidayItem>('academic_holidays');
       const storedTypes = await localDb.getDocs<AcademicHolidayType>('academic_holiday_types');
       const storedSubPeriods = await localDb.getDocs<AcademicSubPeriod>('academic_sub_periods');
+      const storedWeeklyPrograms = await localDb.getDocs<AcademicWeeklyProgram>('academic_weekly_programs');
 
       let currentTypes = storedTypes;
       if (storedTypes.length === 0) {
@@ -226,19 +272,8 @@ export default function AcademicCalendar() {
         setPeriods([samplePeriod]);
         setSelectedPeriodId(samplePeriod.id);
 
-        // Add standard initial sample holidays
+        // Add standard initial sample holidays (strictly within the academic year range)
         const sampleHolidays: AcademicHolidayItem[] = [
-          {
-            id: 'h-1',
-            periodId: 'period-1405-1406',
-            title: 'تاسوعا و عاشورای حسینی',
-            typeId: 'type-tablighi',
-            typeName: 'تعطیلی تبلیغی',
-            startDate: '1405/04/15',
-            endDate: '1405/04/25',
-            description: 'اعزام طلاب به امکنه‌ زیارتی و تبلیغی',
-            createdAt: new Date().toISOString()
-          },
           {
             id: 'h-2',
             periodId: 'period-1405-1406',
@@ -275,6 +310,27 @@ export default function AcademicCalendar() {
 
       setHolidays(storedHolidays);
       setSubPeriods(storedSubPeriods);
+
+      if (storedWeeklyPrograms.length > 0) {
+        setWeeklyPrograms(storedWeeklyPrograms);
+      } else {
+        const sampleWeeklyProgram: AcademicWeeklyProgram = {
+          id: 'wp-1',
+          periodId: 'period-1405-1406',
+          title: 'کارگاه روش تحقیق و نگارش مقاله',
+          dayOfWeek: 'دوشنبه',
+          startDate: '1405/06/15',
+          endDate: '1406/03/20',
+          time: '۱۰:۰۰ تا ۱۱:۳۰',
+          locationOrTeacher: 'سالن همایش / استاد پژوهش',
+          description: 'کارگاه مهارتی پژوهشی دوشنبه‌های هر هفته حوزه علمیه',
+          color: 'purple',
+          customCancelledDates: [],
+          createdAt: new Date().toISOString()
+        };
+        await localDb.setDoc('academic_weekly_programs', sampleWeeklyProgram);
+        setWeeklyPrograms([sampleWeeklyProgram]);
+      }
     } catch (err) {
       console.error("Error loading academic calendar data:", err);
     } finally {
@@ -292,17 +348,28 @@ export default function AcademicCalendar() {
     return periods.find(p => p.id === selectedPeriodId) || null;
   }, [periods, selectedPeriodId]);
 
-  // Holidays belonging to current period
+  // Holidays belonging to current period and overlapping with active period range
   const periodHolidays = useMemo(() => {
-    if (!selectedPeriodId) return [];
-    return holidays.filter(h => h.periodId === selectedPeriodId);
-  }, [holidays, selectedPeriodId]);
+    if (!selectedPeriod) return [];
+    return holidays.filter(h => {
+      if (h.periodId !== selectedPeriod.id) return false;
+      const hEnd = h.endDate || h.startDate;
+      return compareShamsi(h.startDate, selectedPeriod.endDate) <= 0 &&
+             compareShamsi(hEnd, selectedPeriod.startDate) >= 0;
+    });
+  }, [holidays, selectedPeriod]);
 
   // Sub-periods belonging to current period (هفته پژوهش، کارگاه‌ها و...)
   const periodSubPeriods = useMemo(() => {
     if (!selectedPeriodId) return [];
     return subPeriods.filter(sp => sp.periodId === selectedPeriodId);
   }, [subPeriods, selectedPeriodId]);
+
+  // Weekly programs belonging to current period
+  const periodWeeklyPrograms = useMemo(() => {
+    if (!selectedPeriodId) return [];
+    return weeklyPrograms.filter(wp => wp.periodId === selectedPeriodId);
+  }, [weeklyPrograms, selectedPeriodId]);
 
   // Period Date Range Array
   const periodDateList = useMemo(() => {
@@ -335,16 +402,116 @@ export default function AcademicCalendar() {
     return map;
   }, [periodSubPeriods]);
 
+  // Session Statistics Calculation Helper for a Weekly Program
+  const getWeeklyProgramStats = (wp: AcademicWeeklyProgram) => {
+    let matchedDates: string[] = [];
+
+    if (wp.scheduleType === 'custom_dates') {
+      matchedDates = (wp.specificDates || []).slice().sort(compareShamsi);
+    } else {
+      const start = wp.startDate || selectedPeriod?.startDate || '1405/06/15';
+      const end = wp.endDate || selectedPeriod?.endDate || '1406/03/20';
+      const dates = generateShamsiDateRange(start, end);
+
+      const targetDays: string[] = wp.daysOfWeek && wp.daysOfWeek.length > 0
+        ? wp.daysOfWeek
+        : (wp.dayOfWeek ? wp.dayOfWeek.split('، ') : ['دوشنبه']);
+
+      matchedDates = dates.filter(d => targetDays.includes(getShamsiDayOfWeekName(d)));
+    }
+
+    const customOffSet = new Set(wp.customCancelledDates || []);
+
+    const sessionsList = matchedDates.map((dateStr, idx) => {
+      const dayName = getShamsiDayOfWeekName(dateStr);
+      const holidayInfo = holidayDateMap.get(dateStr);
+      const isHoliday = !!holidayInfo;
+      const isCustomCancelled = customOffSet.has(dateStr);
+      const isCancelled = isHoliday || isCustomCancelled;
+
+      let cancellationReason = '';
+      if (isHoliday) {
+        cancellationReason = `${holidayInfo.holiday.typeName}: ${holidayInfo.holiday.title}`;
+      } else if (isCustomCancelled) {
+        cancellationReason = 'تعطیلی سفارشی / لغو جلسه';
+      }
+
+      return {
+        sessionIndex: idx + 1,
+        dateStr,
+        dayName,
+        isCancelled,
+        cancellationReason,
+        isHoliday,
+        isCustomCancelled,
+        holidayInfo
+      };
+    });
+
+    const totalPotentialSessions = sessionsList.length;
+    const cancelledSessionsCount = sessionsList.filter(s => s.isCancelled).length;
+    const heldSessionsCount = totalPotentialSessions - cancelledSessionsCount;
+    const heldRate = totalPotentialSessions > 0 ? Math.round((heldSessionsCount / totalPotentialSessions) * 100) : 0;
+
+    return {
+      wp,
+      totalPotentialSessions,
+      cancelledSessionsCount,
+      heldSessionsCount,
+      heldRate,
+      sessionsList
+    };
+  };
+
+  // Aggregate stats across all active weekly programs
+  const aggregateWeeklyProgramsStats = useMemo(() => {
+    let totalPotential = 0;
+    let totalHeld = 0;
+    let totalCancelled = 0;
+
+    for (const wp of periodWeeklyPrograms) {
+      const stats = getWeeklyProgramStats(wp);
+      totalPotential += stats.totalPotentialSessions;
+      totalHeld += stats.heldSessionsCount;
+      totalCancelled += stats.cancelledSessionsCount;
+    }
+
+    const avgHeldRate = totalPotential > 0 ? Math.round((totalHeld / totalPotential) * 100) : 0;
+
+    return {
+      totalPrograms: periodWeeklyPrograms.length,
+      totalPotential,
+      totalHeld,
+      totalCancelled,
+      avgHeldRate
+    };
+  }, [periodWeeklyPrograms, holidayDateMap, selectedPeriod]);
+
+  // Map dates to weekly programs for calendar grid display
+  const dateWeeklyProgramMap = useMemo(() => {
+    const map = new Map<string, AcademicWeeklyProgram[]>();
+    for (const wp of periodWeeklyPrograms) {
+      const stats = getWeeklyProgramStats(wp);
+      for (const sess of stats.sessionsList) {
+        if (!map.has(sess.dateStr)) {
+          map.set(sess.dateStr, []);
+        }
+        map.get(sess.dateStr)!.push(wp);
+      }
+    }
+    return map;
+  }, [periodWeeklyPrograms, holidayDateMap, selectedPeriod]);
+
   // Sub-period CRUD Handlers
   const handleOpenAddSubPeriod = (defaultDate?: string) => {
     setEditingSubPeriod(null);
     setSubPeriodForm({
-      title: 'هفته پژوهش',
+      title: 'دوره ویژه مهارتی / کارگاه',
       startDate: defaultDate || selectedPeriod?.startDate || getTodayShamsi(),
       endDate: defaultDate || selectedPeriod?.startDate || getTodayShamsi(),
       isAcademicPresence: true,
       isStandardClassDay: false,
-      description: 'برگزاری کارگاه‌های مهارتی، پژوهشی و همایش‌های علمی طلاب',
+      description: 'برگزاری کارگاه‌های مهارتی، اردوها، همایش‌های علمی یا هفته پژوهش',
       color: 'violet'
     });
     setShowSubPeriodModal(true);
@@ -369,7 +536,7 @@ export default function AcademicCalendar() {
     if (!selectedPeriodId) return;
 
     if (!subPeriodForm.title.trim()) {
-      alert("لطفا عنوان دوره یا هفته ویژه را وارد کنید.");
+      alert("لطفا عنوان دوره یا برنامه ویژه را وارد کنید.");
       return;
     }
 
@@ -404,7 +571,7 @@ export default function AcademicCalendar() {
         };
         await localDb.setDoc('academic_sub_periods', newSp);
         setSubPeriods(prev => [...prev, newSp]);
-        showToast("دوره ویژه جدید (مانند هفته پژوهش) با موفقیت اضافه شد.");
+        showToast("دوره ویژه جدید با موفقیت اضافه شد.");
       }
       setShowSubPeriodModal(false);
     } catch (err) {
@@ -413,14 +580,229 @@ export default function AcademicCalendar() {
     }
   };
 
-  const handleDeleteSubPeriod = async (id: string) => {
-    if (!confirm("آیا از حذف این دوره ویژه اطمینان دارید؟")) return;
+  // Weekly Program CRUD Handlers
+  const handleOpenNewWeeklyProgram = () => {
+    setEditingWeeklyProgram(null);
+    setWeeklyProgramForm({
+      title: 'کارگاه آموزشی / جلسه علمی',
+      scheduleType: 'recurring',
+      dayOfWeek: 'دوشنبه',
+      daysOfWeek: ['دوشنبه'],
+      specificDates: [],
+      newCustomDateInput: getTodayShamsi(),
+      startDate: selectedPeriod?.startDate || '1405/06/15',
+      endDate: selectedPeriod?.endDate || '1406/03/20',
+      time: '10:00 تا 11:30',
+      locationOrTeacher: 'سالن همایش / استاد مربوطه',
+      description: 'برنامه آموزشی یا پژوهشی دوره',
+      color: 'purple'
+    });
+    setShowWeeklyProgramModal(true);
+  };
+
+  const handleOpenEditWeeklyProgram = (wp: AcademicWeeklyProgram) => {
+    setEditingWeeklyProgram(wp);
+    const parsedDays: WeekDayName[] = wp.daysOfWeek && wp.daysOfWeek.length > 0
+      ? wp.daysOfWeek
+      : (wp.dayOfWeek ? (wp.dayOfWeek.split('، ') as WeekDayName[]) : ['دوشنبه']);
+
+    setWeeklyProgramForm({
+      title: wp.title,
+      scheduleType: wp.scheduleType || 'recurring',
+      dayOfWeek: wp.dayOfWeek || 'دوشنبه',
+      daysOfWeek: parsedDays,
+      specificDates: wp.specificDates || [],
+      newCustomDateInput: getTodayShamsi(),
+      startDate: wp.startDate || selectedPeriod?.startDate || '1405/06/15',
+      endDate: wp.endDate || selectedPeriod?.endDate || '1406/03/20',
+      time: wp.time || '',
+      locationOrTeacher: wp.locationOrTeacher || '',
+      description: wp.description || '',
+      color: wp.color || 'purple'
+    });
+    setShowWeeklyProgramModal(true);
+  };
+
+  const handleToggleDayOfWeekSelection = (day: WeekDayName) => {
+    const current = new Set(weeklyProgramForm.daysOfWeek);
+    if (current.has(day)) {
+      if (current.size === 1) {
+        showToast("حداقل باید یک روز از هفته انتخاب شده باشد.");
+        return;
+      }
+      current.delete(day);
+    } else {
+      current.add(day);
+    }
+    const ALL_DAYS: WeekDayName[] = ['شنبه', 'یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنج‌شنبه', 'جمعه'];
+    const sortedDays = ALL_DAYS.filter(d => current.has(d));
+    setWeeklyProgramForm({
+      ...weeklyProgramForm,
+      daysOfWeek: sortedDays
+    });
+  };
+
+  const handleAddCustomDateToProgram = () => {
+    const dateToAdd = weeklyProgramForm.newCustomDateInput.trim();
+    if (!dateToAdd) return;
+    if (weeklyProgramForm.specificDates.includes(dateToAdd)) {
+      showToast("این تاریخ قبلا اضافه شده است.");
+      return;
+    }
+    const updated = [...weeklyProgramForm.specificDates, dateToAdd].sort(compareShamsi);
+    setWeeklyProgramForm({
+      ...weeklyProgramForm,
+      specificDates: updated
+    });
+    showToast(`تاریخ ${dateToAdd} اضافه شد.`);
+  };
+
+  const handleRemoveCustomDateFromProgram = (dateStr: string) => {
+    setWeeklyProgramForm({
+      ...weeklyProgramForm,
+      specificDates: weeklyProgramForm.specificDates.filter(d => d !== dateStr)
+    });
+  };
+
+  const handleSaveWeeklyProgram = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedPeriodId || !weeklyProgramForm.title.trim()) return;
+
+    if (weeklyProgramForm.scheduleType === 'recurring' && weeklyProgramForm.daysOfWeek.length === 0) {
+      alert("لطفاً حداقل یک روز از روزهای هفته را انتخاب کنید.");
+      return;
+    }
+
+    if (weeklyProgramForm.scheduleType === 'custom_dates' && weeklyProgramForm.specificDates.length === 0) {
+      alert("لطفاً حداقل یک تاریخ سفارشی برای برگزاری این برنامه وارد کنید.");
+      return;
+    }
+
+    const dayOfWeekDisplay = weeklyProgramForm.scheduleType === 'custom_dates'
+      ? `${weeklyProgramForm.specificDates.length} جلسه با تاریخ مشخص`
+      : weeklyProgramForm.daysOfWeek.join('، ');
+
     try {
-      await localDb.deleteDoc('academic_sub_periods', id);
-      setSubPeriods(prev => prev.filter(sp => sp.id !== id));
-      showToast("دوره ویژه حذف گردید.");
+      if (editingWeeklyProgram) {
+        const updated: AcademicWeeklyProgram = {
+          ...editingWeeklyProgram,
+          title: weeklyProgramForm.title.trim(),
+          scheduleType: weeklyProgramForm.scheduleType,
+          dayOfWeek: dayOfWeekDisplay,
+          daysOfWeek: weeklyProgramForm.daysOfWeek,
+          specificDates: weeklyProgramForm.specificDates,
+          startDate: weeklyProgramForm.startDate,
+          endDate: weeklyProgramForm.endDate,
+          time: weeklyProgramForm.time.trim() || undefined,
+          locationOrTeacher: weeklyProgramForm.locationOrTeacher.trim() || undefined,
+          description: weeklyProgramForm.description.trim() || undefined,
+          color: weeklyProgramForm.color,
+          updatedAt: new Date().toISOString()
+        };
+        await localDb.updateDoc('academic_weekly_programs', editingWeeklyProgram.id, updated);
+        setWeeklyPrograms(prev => prev.map(wp => wp.id === editingWeeklyProgram.id ? updated : wp));
+        if (selectedProgramForDetails && selectedProgramForDetails.id === editingWeeklyProgram.id) {
+          setSelectedProgramForDetails(updated);
+        }
+        showToast("برنامه با موفقیت به‌روزرسانی شد.");
+      } else {
+        const newWp: AcademicWeeklyProgram = {
+          id: `wp-${Date.now()}`,
+          periodId: selectedPeriodId,
+          title: weeklyProgramForm.title.trim(),
+          scheduleType: weeklyProgramForm.scheduleType,
+          dayOfWeek: dayOfWeekDisplay,
+          daysOfWeek: weeklyProgramForm.daysOfWeek,
+          specificDates: weeklyProgramForm.specificDates,
+          startDate: weeklyProgramForm.startDate || selectedPeriod?.startDate || '1405/06/15',
+          endDate: weeklyProgramForm.endDate || selectedPeriod?.endDate || '1406/03/20',
+          time: weeklyProgramForm.time.trim() || undefined,
+          locationOrTeacher: weeklyProgramForm.locationOrTeacher.trim() || undefined,
+          description: weeklyProgramForm.description.trim() || undefined,
+          color: weeklyProgramForm.color,
+          customCancelledDates: [],
+          createdAt: new Date().toISOString()
+        };
+        await localDb.setDoc('academic_weekly_programs', newWp);
+        setWeeklyPrograms(prev => [...prev, newWp]);
+        showToast("برنامه جدید با موفقیت ثبت شد.");
+      }
+      setShowWeeklyProgramModal(false);
     } catch (err) {
-      console.error("Error deleting sub-period:", err);
+      console.error("Error saving weekly program:", err);
+      alert("خطا در ثبت برنامه.");
+    }
+  };
+
+  const handleToggleSessionCancellation = async (programId: string, dateStr: string) => {
+    const wp = weeklyPrograms.find(p => p.id === programId);
+    if (!wp) return;
+
+    const customOff = new Set(wp.customCancelledDates || []);
+    if (customOff.has(dateStr)) {
+      customOff.delete(dateStr);
+    } else {
+      customOff.add(dateStr);
+    }
+
+    const updated: AcademicWeeklyProgram = {
+      ...wp,
+      customCancelledDates: Array.from(customOff),
+      updatedAt: new Date().toISOString()
+    };
+
+    await localDb.updateDoc('academic_weekly_programs', programId, updated);
+    setWeeklyPrograms(prev => prev.map(p => p.id === programId ? updated : p));
+    if (selectedProgramForDetails && selectedProgramForDetails.id === programId) {
+      setSelectedProgramForDetails(updated);
+    }
+    showToast(`وضعیت جلسه ${dateStr} به روز شد.`);
+  };
+
+  // Safe Deletion Modals Handlers
+  const handleOpenDeleteWeeklyProgram = (id: string, title: string) => {
+    setDeleteConfirmModal({
+      isOpen: true,
+      type: 'weekly_program',
+      id,
+      title
+    });
+  };
+
+  const handleOpenDeleteSubPeriod = (id: string, title: string) => {
+    setDeleteConfirmModal({
+      isOpen: true,
+      type: 'sub_period',
+      id,
+      title
+    });
+  };
+
+  const handleConfirmDeleteModal = async () => {
+    if (!deleteConfirmModal) return;
+    const { type, id, title } = deleteConfirmModal;
+    try {
+      if (type === 'weekly_program') {
+        await localDb.deleteDoc('academic_weekly_programs', id);
+        setWeeklyPrograms(prev => prev.filter(wp => wp.id !== id));
+        if (selectedProgramForDetails?.id === id) {
+          setSelectedProgramForDetails(null);
+        }
+        showToast(`برنامه «${title}» با موفقیت حذف گردید.`);
+      } else if (type === 'sub_period') {
+        await localDb.deleteDoc('academic_sub_periods', id);
+        setSubPeriods(prev => prev.filter(sp => sp.id !== id));
+        showToast(`دوره ویژه «${title}» حذف گردید.`);
+      } else if (type === 'period') {
+        await handleDeletePeriod(id);
+      } else if (type === 'holiday') {
+        await handleDeleteHoliday(id);
+      }
+    } catch (err) {
+      console.error("Error executing deletion:", err);
+      showToast("خطا در انجام عملیات حذف.");
+    } finally {
+      setDeleteConfirmModal(null);
     }
   };
 
@@ -939,17 +1321,19 @@ export default function AcademicCalendar() {
     const exportData: AcademicCalendarExportPackage = {
       _meta: {
         system: 'TOLAB_ACADEMIC_CALENDAR',
-        version: '1.1',
+        version: '1.2',
         exportDate: new Date().toISOString(),
         totalPeriods: periods.length,
         totalHolidays: holidays.length,
         totalHolidayTypes: holidayTypes.length,
-        totalSubPeriods: subPeriods.length
+        totalSubPeriods: subPeriods.length,
+        totalWeeklyPrograms: weeklyPrograms.length
       },
       periods,
       holidays,
       holidayTypes,
-      subPeriods
+      subPeriods,
+      weeklyPrograms
     };
 
     const jsonString = JSON.stringify(exportData, null, 2);
@@ -984,17 +1368,20 @@ export default function AcademicCalendar() {
         for (const h of holidays) await localDb.deleteDoc('academic_holidays', h.id);
         for (const t of holidayTypes) await localDb.deleteDoc('academic_holiday_types', t.id);
         for (const sp of subPeriods) await localDb.deleteDoc('academic_sub_periods', sp.id);
+        for (const wp of weeklyPrograms) await localDb.deleteDoc('academic_weekly_programs', wp.id);
 
         // Insert imported items
         for (const p of parsed.periods) await localDb.setDoc('academic_calendar_periods', p);
         for (const h of parsed.holidays) await localDb.setDoc('academic_holidays', h);
         for (const t of (parsed.holidayTypes || DEFAULT_HOLIDAY_TYPES)) await localDb.setDoc('academic_holiday_types', t);
         for (const sp of (parsed.subPeriods || [])) await localDb.setDoc('academic_sub_periods', sp);
+        for (const wp of (parsed.weeklyPrograms || [])) await localDb.setDoc('academic_weekly_programs', wp);
 
         setPeriods(parsed.periods);
         setHolidays(parsed.holidays);
         setHolidayTypes(parsed.holidayTypes || DEFAULT_HOLIDAY_TYPES);
         setSubPeriods(parsed.subPeriods || []);
+        setWeeklyPrograms(parsed.weeklyPrograms || []);
         if (parsed.periods.length > 0) setSelectedPeriodId(parsed.periods[0].id);
         showToast("اطلاعات تقویم آموزشی با موفقیت جایگزین گردید.");
       } else {
@@ -1003,16 +1390,16 @@ export default function AcademicCalendar() {
         for (const h of parsed.holidays) await localDb.setDoc('academic_holidays', h);
         for (const t of (parsed.holidayTypes || [])) await localDb.setDoc('academic_holiday_types', t);
         for (const sp of (parsed.subPeriods || [])) await localDb.setDoc('academic_sub_periods', sp);
+        for (const wp of (parsed.weeklyPrograms || [])) await localDb.setDoc('academic_weekly_programs', wp);
 
         await loadAllData();
-        showToast("اطلاعات تقویم آموزشی با موفقیت ادغام شد.");
+        showToast("اطلاعات پشتیبان با موفقیت ترکیب شدند.");
       }
-
       setShowImportExportModal(false);
       setImportJsonText('');
     } catch (err) {
       console.error("Error importing data:", err);
-      alert("خطا در خواندن فایل JSON. لطفا از صحت فایل اطمینان حاصل کنید.");
+      alert("خطا در پردازش فایل پشتیبان JSON.");
     }
   };
 
@@ -1164,12 +1551,21 @@ export default function AcademicCalendar() {
             </button>
 
             <button
-              onClick={() => setShowImportExportModal(true)}
-              className="flex items-center gap-1.5 px-3 py-2.5 bg-indigo-700/80 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl border border-indigo-500/30 transition-all shrink-0"
-              title="ورودی و خروجی پشتیبان تقویم"
+              onClick={handleExportData}
+              className="flex items-center gap-1.5 px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0 border border-emerald-400/30 active:scale-95"
+              title="خروجی گرفتن از فایل پشتیبان اختصاصی تقویم آموزشی جهت ارائه به سایر کاربران"
             >
               <Download size={15} />
-              <span>خروجی / ورودی</span>
+              <span>پشتیبان‌گیری تقویم (خروجی JSON)</span>
+            </button>
+
+            <button
+              onClick={() => setShowImportExportModal(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2.5 bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0 border border-indigo-500/30 active:scale-95"
+              title="بارگذاری فایل پشتیبان تقویم آموزشی"
+            >
+              <Upload size={15} />
+              <span>بارگذاری پشتیبان تقویم</span>
             </button>
 
             <button
@@ -1301,6 +1697,19 @@ export default function AcademicCalendar() {
           >
             <BookOpen size={16} />
             <span>روزهای درسی ({dateAnalysis.studyDays})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('recurring_programs')}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all",
+              activeTab === 'recurring_programs'
+                ? "bg-purple-600 text-white shadow-md shadow-purple-100"
+                : "text-slate-600 hover:bg-slate-100"
+            )}
+          >
+            <BookOpen size={16} />
+            <span>برنامه‌های هفتگی و پژوهشی ({periodWeeklyPrograms.length})</span>
           </button>
         </div>
 
@@ -1599,6 +2008,29 @@ export default function AcademicCalendar() {
                         )}
                       </div>
 
+                      {/* Recurring / Weekly Program Badge */}
+                      {dateWeeklyProgramMap.has(dayItem.dateStr) && (
+                        <div className="mt-1 space-y-0.5">
+                          {dateWeeklyProgramMap.get(dayItem.dateStr)!.map(wp => {
+                            const isOff = (wp.customCancelledDates || []).includes(dayItem.dateStr) || dayItem.isHoliday;
+                            return (
+                              <div
+                                key={wp.id}
+                                className={cn(
+                                  "text-[8px] font-bold px-1.5 py-0.5 rounded flex items-center justify-between gap-1",
+                                  isOff
+                                    ? "bg-slate-200 text-slate-600 line-through decoration-rose-500"
+                                    : "bg-purple-100 text-purple-900 border border-purple-200"
+                                )}
+                              >
+                                <span className="truncate">{wp.title}</span>
+                                <span className="shrink-0 text-[7px]">{isOff ? 'لغو' : 'برنامه'}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
                       {/* Hover action indicator */}
                       <div className="opacity-0 group-hover:opacity-100 transition-opacity text-[9px] text-slate-400 font-bold text-left pt-1">
                         {dayItem.isHoliday ? 'ویرایش تعطیلی' : dayItem.isSubPeriod ? 'ویرایش دوره ویژه' : dayItem.isThu ? 'تنظیم ۵شنبه' : '+ تعطیلی'}
@@ -1678,7 +2110,7 @@ export default function AcademicCalendar() {
                             <Edit2 size={15} />
                           </button>
                           <button
-                            onClick={() => handleDeleteSubPeriod(sp.id)}
+                            onClick={() => handleOpenDeleteSubPeriod(sp.id, sp.title)}
                             className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-white rounded-lg transition-colors"
                             title="حذف دوره ویژه"
                           >
@@ -2210,6 +2642,295 @@ export default function AcademicCalendar() {
         </div>
       )}
 
+      {/* --- TAB VIEW: RECURRING / WEEKLY PROGRAMS --- */}
+      {activeTab === 'recurring_programs' && (
+        <div className="space-y-6">
+          {/* Header & Description */}
+          <div className="bg-gradient-to-r from-purple-900 via-indigo-900 to-slate-900 rounded-3xl p-6 text-white shadow-lg relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="space-y-2 relative z-10">
+              <div className="flex items-center gap-2 text-purple-300 text-xs font-bold">
+                <BookOpen size={18} />
+                <span>برنامه‌های هفتگی و کارگاه‌های مهارتی</span>
+              </div>
+              <h2 className="text-xl font-black">مدیریت و آمار برنامه‌های تکرارشونده هفتگی</h2>
+              <p className="text-xs text-purple-200/80 max-w-2xl leading-relaxed">
+                برنامه‌های پژوهشی، کارگاه‌های مهارتی یا جلسات علمی که به صورت دوره‌ای (مثلاً دوشنبه‌های هر هفته) برگزار می‌شوند. وجود این برنامه‌ها **هیچ کسر یا خللی در آمار روزهای درسی کتاب‌های اصلی ایجاد نمی‌کند** و آمار جلسات و تعطیلی‌های آن به طور مستقل محاسبه می‌شود.
+              </p>
+            </div>
+
+            <button
+              onClick={handleOpenNewWeeklyProgram}
+              className="flex items-center gap-2 px-5 py-3 bg-purple-500 hover:bg-purple-600 text-white text-xs font-bold rounded-2xl shadow-lg transition-all active:scale-95 shrink-0 self-start md:self-center"
+            >
+              <Plus size={16} />
+              <span>افزودن برنامه هفتگی جدید</span>
+            </button>
+          </div>
+
+          {/* Aggregated KPI Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs space-y-1">
+              <span className="text-[11px] font-bold text-slate-500 block">برنامه‌های تعریف‌شده</span>
+              <span className="text-xl font-black text-purple-700">{aggregateWeeklyProgramsStats.totalPrograms} عنوان</span>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs space-y-1">
+              <span className="text-[11px] font-bold text-slate-500 block">کل جلسات بالقوه</span>
+              <span className="text-xl font-black text-slate-800">{aggregateWeeklyProgramsStats.totalPotential} جلسه</span>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-emerald-200 shadow-2xs space-y-1 bg-emerald-50/30">
+              <span className="text-[11px] font-bold text-emerald-700 block">جلسات برگزارشده</span>
+              <span className="text-xl font-black text-emerald-700">{aggregateWeeklyProgramsStats.totalHeld} جلسه</span>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-rose-200 shadow-2xs space-y-1 bg-rose-50/30">
+              <span className="text-[11px] font-bold text-rose-700 block">جلسات تعطیل‌شده</span>
+              <span className="text-xl font-black text-rose-700">{aggregateWeeklyProgramsStats.totalCancelled} جلسه</span>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-indigo-200 shadow-2xs space-y-1 bg-indigo-50/30 col-span-2 sm:col-span-1">
+              <span className="text-[11px] font-bold text-indigo-700 block">نرخ برگزاری</span>
+              <span className="text-xl font-black text-indigo-700">٪{aggregateWeeklyProgramsStats.avgHeldRate}</span>
+            </div>
+          </div>
+
+          {/* Programs List Cards */}
+          {periodWeeklyPrograms.length === 0 ? (
+            <div className="p-10 bg-white rounded-3xl border border-dashed border-slate-300 text-center space-y-3">
+              <BookOpen size={40} className="mx-auto text-slate-300" />
+              <h3 className="text-sm font-bold text-slate-700">هنوز هیچ برنامه هفتگی برای این دوره ثبت نشده است.</h3>
+              <p className="text-xs text-slate-400 max-w-md mx-auto">
+                می‌توانید کارگاه‌های پژوهشی، نشست‌های علمی یا برنامه‌های هفتگی مانند «دوشنبه‌های پژوهشی» را ثبت کنید تا آمار دقیق جلسات برگزارشده و تعطیل‌شده آن محاسبه گردد.
+              </p>
+              <button
+                onClick={handleOpenNewWeeklyProgram}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
+              >
+                + ثبت اولین برنامه هفتگی
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {periodWeeklyPrograms.map(wp => {
+                const stats = getWeeklyProgramStats(wp);
+                const isSelected = selectedProgramForDetails?.id === wp.id;
+
+                return (
+                  <div
+                    key={wp.id}
+                    className={cn(
+                      "bg-white rounded-3xl p-5 border transition-all space-y-4 shadow-2xs",
+                      isSelected ? "border-purple-500 ring-2 ring-purple-100" : "border-slate-200 hover:border-purple-300"
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2.5 py-1 bg-purple-100 text-purple-800 text-[11px] font-black rounded-lg border border-purple-200">
+                            {wp.dayOfWeek}ها
+                          </span>
+                          <h3 className="text-base font-black text-slate-800">{wp.title}</h3>
+                        </div>
+                        {wp.description && (
+                          <p className="text-xs text-slate-500 line-clamp-2">{wp.description}</p>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={() => handleOpenEditWeeklyProgram(wp)}
+                          className="p-2 hover:bg-slate-100 text-slate-600 rounded-xl transition-colors"
+                          title="ویرایش"
+                        >
+                          <Edit3 size={15} />
+                        </button>
+                        <button
+                          onClick={() => handleOpenDeleteWeeklyProgram(wp.id, wp.title)}
+                          className="p-2 hover:bg-rose-50 text-rose-600 rounded-xl transition-colors"
+                          title="حذف"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Program Metadata info */}
+                    <div className="grid grid-cols-2 gap-2 text-xs bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                      <div>
+                        <span className="text-[10px] text-slate-400 font-bold block">بازه زمانی:</span>
+                        <span className="font-bold text-slate-700">{wp.startDate} الی {wp.endDate}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 font-bold block">زمان / مدرس / مکان:</span>
+                        <span className="font-bold text-slate-700">{wp.time || '---'} {wp.locationOrTeacher ? `(${wp.locationOrTeacher})` : ''}</span>
+                      </div>
+                    </div>
+
+                    {/* Quick Stats Progress Bar */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-xs font-bold">
+                        <span className="text-slate-600">آمار حضور و برگزاری:</span>
+                        <span className="text-purple-700 font-black">
+                          {stats.heldSessionsCount} از {stats.totalPotentialSessions} جلسه برگزارشده (٪{stats.heldRate})
+                        </span>
+                      </div>
+                      <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden flex">
+                        <div
+                          style={{ width: `${stats.heldRate}%` }}
+                          className="bg-emerald-500 h-full rounded-full transition-all"
+                        />
+                        <div
+                          style={{ width: `${100 - stats.heldRate}%` }}
+                          className="bg-rose-300 h-full transition-all"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold pt-0.5">
+                        <span className="text-emerald-600">برگزارشده: {stats.heldSessionsCount} جلسه</span>
+                        <span className="text-rose-500">تعطیل/لغو شده: {stats.cancelledSessionsCount} جلسه</span>
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                      <button
+                        onClick={() => setSelectedProgramForDetails(isSelected ? null : wp)}
+                        className={cn(
+                          "px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5",
+                          isSelected
+                            ? "bg-purple-600 text-white shadow-xs"
+                            : "bg-purple-50 text-purple-700 hover:bg-purple-100"
+                        )}
+                      >
+                        <Filter size={14} />
+                        <span>{isSelected ? 'بستن ریز جلسات' : 'مشاهده آمار و تقویم ریز جلسات'}</span>
+                      </button>
+
+                      <span className="text-[10px] text-slate-400 font-bold">
+                        {wp.customCancelledDates?.length || 0} لغو سفارشی
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Detailed Session Breakdown Table for Selected Program */}
+          {selectedProgramForDetails && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-white rounded-3xl border border-purple-200 shadow-lg p-6 space-y-4"
+            >
+              {(() => {
+                const stats = getWeeklyProgramStats(selectedProgramForDetails);
+
+                return (
+                  <>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="px-2.5 py-1 bg-purple-600 text-white text-xs font-black rounded-lg">
+                            {selectedProgramForDetails.dayOfWeek}ها
+                          </span>
+                          <h3 className="text-lg font-black text-slate-800">
+                            تقویم و آمار تفکیکی جلسات «{selectedProgramForDetails.title}»
+                          </h3>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1">
+                          در این بخش می‌توانید لیست تمام روزهای {selectedProgramForDetails.dayOfWeek} بازه زمانی را مشاهده کرده و جلسات تعطیل‌شده را بررسی یا به صورت دستی تغییر دهید.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2 self-start sm:self-center">
+                        <button
+                          onClick={() => handleOpenEditWeeklyProgram(selectedProgramForDetails)}
+                          className="px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-800 text-xs font-bold rounded-xl border border-purple-200 transition-colors flex items-center gap-1"
+                        >
+                          <Edit3 size={14} />
+                          <span>ویرایش</span>
+                        </button>
+                        <button
+                          onClick={() => handleOpenDeleteWeeklyProgram(selectedProgramForDetails.id, selectedProgramForDetails.title)}
+                          className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-xl border border-rose-200 transition-colors flex items-center gap-1"
+                        >
+                          <Trash2 size={14} />
+                          <span>حذف کامل</span>
+                        </button>
+                        <button
+                          onClick={() => setSelectedProgramForDetails(null)}
+                          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold rounded-xl transition-colors"
+                        >
+                          بستن
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                      <table className="w-full text-right border-collapse">
+                        <thead>
+                          <tr className="bg-slate-900 text-white text-xs font-black">
+                            <th className="p-3">شماره جلسه</th>
+                            <th className="p-3">تاریخ جلسه (شمسی)</th>
+                            <th className="p-3">روز هفته</th>
+                            <th className="p-3">وضعیت برگزاری</th>
+                            <th className="p-3">علت لغو / تعطیلی</th>
+                            <th className="p-3">تغییر وضعیت دستی</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-xs">
+                          {stats.sessionsList.map(sess => (
+                            <tr
+                              key={sess.dateStr}
+                              className={cn(
+                                "transition-colors",
+                                sess.isCancelled ? "bg-rose-50/40" : "hover:bg-slate-50"
+                              )}
+                            >
+                              <td className="p-3 font-black text-slate-500">جلسه {sess.sessionIndex}</td>
+                              <td className="p-3 font-bold text-slate-800">{sess.dateStr}</td>
+                              <td className="p-3 font-bold text-purple-700">{sess.dayName}</td>
+                              <td className="p-3">
+                                {sess.isCancelled ? (
+                                  <span className="px-2.5 py-1 bg-rose-100 text-rose-800 text-[10px] font-bold rounded-lg border border-rose-200 inline-block">
+                                    تعطیل / لغو شده
+                                  </span>
+                                ) : (
+                                  <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-lg border border-emerald-200 inline-block">
+                                    برگزار می‌گردد
+                                  </span>
+                                )}
+                              </td>
+                              <td className="p-3 text-slate-600">
+                                {sess.cancellationReason || '---'}
+                              </td>
+                              <td className="p-3">
+                                <button
+                                  onClick={() => handleToggleSessionCancellation(selectedProgramForDetails.id, sess.dateStr)}
+                                  className={cn(
+                                    "px-3 py-1 rounded-lg text-[10px] font-bold transition-all border",
+                                    sess.isCustomCancelled
+                                      ? "bg-emerald-600 text-white border-emerald-700 hover:bg-emerald-700"
+                                      : "bg-slate-100 text-slate-700 border-slate-200 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200"
+                                  )}
+                                >
+                                  {sess.isCustomCancelled ? 'فعال‌سازی مجدد جلسه' : 'لغو دستی این جلسه'}
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                );
+              })()}
+            </motion.div>
+          )}
+        </div>
+      )}
+
       {/* --- MODAL 1: ADD / EDIT PERIOD MODAL --- */}
       <AnimatePresence>
         {showPeriodModal && (
@@ -2543,19 +3264,36 @@ export default function AcademicCalendar() {
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">رنگ شاخص در تقویم</label>
-                  <select
-                    value={subPeriodForm.color}
-                    onChange={(e) => setSubPeriodForm({ ...subPeriodForm, color: e.target.value })}
-                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:outline-none"
-                  >
-                    <option value="violet">بنفش (Violet)</option>
-                    <option value="indigo">نیلی (Indigo)</option>
-                    <option value="sky">آبی روشن (Sky)</option>
-                    <option value="emerald">زمردی (Emerald)</option>
-                    <option value="amber">کهربایی (Amber)</option>
-                    <option value="fuchsia">ارغوانی (Fuchsia)</option>
-                  </select>
+                  <label className="block font-bold text-slate-700 mb-1.5">رنگ شاخص در تقویم (پیش‌نمایش)</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {[
+                      { id: 'violet', label: 'بنفش', bgHex: 'bg-violet-600', ringColor: 'ring-violet-500' },
+                      { id: 'indigo', label: 'نیلی', bgHex: 'bg-indigo-600', ringColor: 'ring-indigo-500' },
+                      { id: 'sky', label: 'آبی روشن', bgHex: 'bg-sky-500', ringColor: 'ring-sky-500' },
+                      { id: 'emerald', label: 'زمردی', bgHex: 'bg-emerald-600', ringColor: 'ring-emerald-500' },
+                      { id: 'amber', label: 'کهربایی', bgHex: 'bg-amber-500', ringColor: 'ring-amber-500' },
+                      { id: 'fuchsia', label: 'ارغوانی', bgHex: 'bg-fuchsia-600', ringColor: 'ring-fuchsia-500' },
+                    ].map(c => {
+                      const isSelected = subPeriodForm.color === c.id;
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => setSubPeriodForm({ ...subPeriodForm, color: c.id })}
+                          className={cn(
+                            "flex items-center gap-2 p-2.5 rounded-xl border text-xs font-bold transition-all text-right",
+                            isSelected
+                              ? "border-violet-600 bg-violet-50 text-violet-950 shadow-xs ring-2 ring-violet-400"
+                              : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+                          )}
+                        >
+                          <span className={cn("w-4 h-4 rounded-md shrink-0 shadow-xs border border-black/10", c.bgHex)} />
+                          <span className="truncate flex-1">{c.label}</span>
+                          {isSelected && <span className="text-[11px] font-black text-violet-700">✓</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 <div>
@@ -2714,11 +3452,11 @@ export default function AcademicCalendar() {
               {/* Section 1: Export */}
               <div className="p-4 bg-indigo-50/70 rounded-2xl border border-indigo-200 space-y-3 text-xs">
                 <div className="flex items-center justify-between">
-                  <span className="font-black text-indigo-900 text-sm">۱. خروجی گرفتن از اطلاعات تقویم</span>
+                  <span className="font-black text-indigo-900 text-sm">۱. خروجی گرفتن و پشتیبان‌گیری اختصاصی تقویم</span>
                   <span className="text-[10px] bg-indigo-200 text-indigo-800 font-bold px-2 py-0.5 rounded-full">فرمت JSON</span>
                 </div>
-                <p className="text-slate-600 leading-relaxed">
-                  دانلود فایل پشتیبان استاندارد شامل تمامی دوره‌های تحصیلی، تعطیلات ثبت‌شده و انواع تعطیلات تعریف‌شده با ساختار کاملا تطبیق‌پذیر جهت بازیابی.
+                <p className="text-slate-600 leading-relaxed font-medium">
+                  دانلود فایل پشتیبان کامل شامل تمامی دوره‌های تحصیلی، تعطیلات رسمی و مناسبتی، دوره‌های ویژه و برنامه‌های هفتگی پژوهشی. شما می‌توانید این فایل را دریافت کرده و به سایر کاربران یا همکاران بدهید تا در نرم‌افزار خود بارگذاری کنند.
                 </p>
                 <button
                   onClick={handleExportData}
@@ -2732,11 +3470,11 @@ export default function AcademicCalendar() {
               {/* Section 2: Import */}
               <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3 text-xs">
                 <div className="flex items-center justify-between">
-                  <span className="font-black text-slate-800 text-sm">۲. وارد کردن اطلاعات تقویم (بازیابی)</span>
+                  <span className="font-black text-slate-800 text-sm">۲. بارگذاری فایل پشتیبان تقویم (ورودی اطلاعات)</span>
                   <span className="text-[10px] bg-slate-200 text-slate-700 font-bold px-2 py-0.5 rounded-full">پشتیبانی کامل</span>
                 </div>
                 <p className="text-slate-500 leading-relaxed">
-                  فایل پشتیبان قبلی را بارگذاری کرده یا محتوای JSON آن را در کادر زیر قرار دهید.
+                  فایل JSON پشتیبان دریافتی از سایر کاربران را از سیستم انتخاب کرده یا کدهای آن را در کادر زیر قرار دهید.
                 </p>
 
                 <div className="flex items-center gap-2">
@@ -3138,6 +3876,308 @@ export default function AcademicCalendar() {
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      {/* --- MODAL 7: ADD / EDIT WEEKLY PROGRAM MODAL --- */}
+      <AnimatePresence>
+        {showWeeklyProgramModal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl p-6 max-w-xl w-full border border-slate-200 shadow-2xl space-y-5 my-auto max-h-[90vh] overflow-y-auto"
+              dir="rtl"
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-purple-100 text-purple-700 rounded-xl">
+                    <BookOpen size={18} />
+                  </div>
+                  <h3 className="text-base font-black text-slate-800">
+                    {editingWeeklyProgram ? 'ویرایش برنامه و کارگاه آموزشی' : 'ثبت برنامه جدید'}
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setShowWeeklyProgramModal(false)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveWeeklyProgram} className="space-y-4 text-xs">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">عنوان برنامه / کارگاه (الزامی) *</label>
+                  <input
+                    type="text"
+                    required
+                    value={weeklyProgramForm.title}
+                    onChange={(e) => setWeeklyProgramForm({ ...weeklyProgramForm, title: e.target.value })}
+                    placeholder="مثال: کارگاه روش تحقیق، جلسه اخلاق، نشریه علمی، همایش"
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+
+                {/* Schedule Type Segmented Buttons */}
+                <div className="space-y-1.5">
+                  <label className="block font-bold text-slate-700">نوع زمان‌بندی و برگزاری برنامه</label>
+                  <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-2xl">
+                    <button
+                      type="button"
+                      onClick={() => setWeeklyProgramForm({ ...weeklyProgramForm, scheduleType: 'recurring' })}
+                      className={cn(
+                        "py-2.5 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5",
+                        weeklyProgramForm.scheduleType === 'recurring'
+                          ? "bg-white text-purple-800 shadow-xs"
+                          : "text-slate-600 hover:text-slate-800"
+                      )}
+                    >
+                      <CalendarIcon size={14} />
+                      <span>تکرارشونده (روزهای هفته)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setWeeklyProgramForm({ ...weeklyProgramForm, scheduleType: 'custom_dates' })}
+                      className={cn(
+                        "py-2.5 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5",
+                        weeklyProgramForm.scheduleType === 'custom_dates'
+                          ? "bg-white text-purple-800 shadow-xs"
+                          : "text-slate-600 hover:text-slate-800"
+                      )}
+                    >
+                      <Sparkles size={14} />
+                      <span>غیرمستمر (تاریخ‌های مشخص)</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* MODE 1: RECURRING WEEKLY DAYS */}
+                {weeklyProgramForm.scheduleType === 'recurring' ? (
+                  <div className="space-y-3 bg-purple-50/50 p-3.5 rounded-2xl border border-purple-100">
+                    <div>
+                      <label className="block font-bold text-purple-900 mb-1.5">
+                        روزهای برگزاری در هفته (می‌توانید چند روز را همزمان انتخاب کنید):
+                      </label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(['شنبه', 'یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنج‌شنبه', 'جمعه'] as WeekDayName[]).map(day => {
+                          const isSelected = weeklyProgramForm.daysOfWeek.includes(day);
+                          return (
+                            <button
+                              key={day}
+                              type="button"
+                              onClick={() => handleToggleDayOfWeekSelection(day)}
+                              className={cn(
+                                "px-3 py-1.5 rounded-xl font-bold text-xs transition-all border",
+                                isSelected
+                                  ? "bg-purple-600 text-white border-purple-700 shadow-xs"
+                                  : "bg-white text-slate-700 border-slate-200 hover:bg-purple-100/50"
+                              )}
+                            >
+                              {isSelected ? `✓ ${day}‌ها` : day}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <span className="text-[10px] text-purple-700/80 mt-1 block font-medium">
+                        روزهای انتخابی: {weeklyProgramForm.daysOfWeek.join('، ')}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 pt-1">
+                      <ShamsiDatePicker
+                        label="تاریخ شروع اجرای برنامه"
+                        required
+                        value={weeklyProgramForm.startDate}
+                        onChange={(d) => setWeeklyProgramForm({ ...weeklyProgramForm, startDate: d })}
+                        placeholder="1405/06/15"
+                      />
+
+                      <ShamsiDatePicker
+                        label="تاریخ پایان اجرا"
+                        required
+                        value={weeklyProgramForm.endDate}
+                        onChange={(d) => setWeeklyProgramForm({ ...weeklyProgramForm, endDate: d })}
+                        placeholder="1406/03/20"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  /* MODE 2: CUSTOM DATES SCHEDULE */
+                  <div className="space-y-3 bg-indigo-50/50 p-3.5 rounded-2xl border border-indigo-100">
+                    <label className="block font-bold text-indigo-900">
+                      ثبت تاریخ‌های مشخص برگزاری (مناسب جلسات غیرمستمر):
+                    </label>
+
+                    <div className="flex items-end gap-2">
+                      <div className="flex-1">
+                        <ShamsiDatePicker
+                          label="انتخاب تاریخ جلسه"
+                          value={weeklyProgramForm.newCustomDateInput}
+                          onChange={(d) => setWeeklyProgramForm({ ...weeklyProgramForm, newCustomDateInput: d })}
+                          placeholder="1405/07/12"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleAddCustomDateToProgram}
+                        className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shrink-0 transition-colors shadow-xs"
+                      >
+                        + افزودن تاریخ
+                      </button>
+                    </div>
+
+                    {weeklyProgramForm.specificDates.length > 0 ? (
+                      <div className="space-y-1.5 pt-2">
+                        <span className="text-[11px] font-bold text-indigo-900 block">
+                          تاریخ‌های ثبت‌شده برای این برنامه ({weeklyProgramForm.specificDates.length} جلسه):
+                        </span>
+                        <div className="flex flex-wrap gap-2 max-h-36 overflow-y-auto p-2 bg-white rounded-xl border border-indigo-100">
+                          {weeklyProgramForm.specificDates.map(dateStr => (
+                            <span
+                              key={dateStr}
+                              className="px-2.5 py-1 bg-indigo-100 text-indigo-900 font-bold rounded-lg text-xs flex items-center gap-1.5 border border-indigo-200"
+                            >
+                              <span>{dateStr} ({getShamsiDayOfWeekName(dateStr)})</span>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveCustomDateFromProgram(dateStr)}
+                                className="text-indigo-500 hover:text-rose-600 p-0.5 rounded-md hover:bg-indigo-200/50 transition-colors"
+                                title="حذف این تاریخ"
+                              >
+                                <X size={12} />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-amber-800 bg-amber-50 p-2 rounded-xl border border-amber-200 font-medium">
+                        هنوز هیچ تاریخی اضافه نشده است. لطفاً حداقل یک تاریخ برای این برنامه ثبت کنید.
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">ساعت برگزاری</label>
+                    <input
+                      type="text"
+                      value={weeklyProgramForm.time}
+                      onChange={(e) => setWeeklyProgramForm({ ...weeklyProgramForm, time: e.target.value })}
+                      placeholder="مثال: 10:00 تا 11:30"
+                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">مکان برگزاری / مدرس</label>
+                    <input
+                      type="text"
+                      value={weeklyProgramForm.locationOrTeacher}
+                      onChange={(e) => setWeeklyProgramForm({ ...weeklyProgramForm, locationOrTeacher: e.target.value })}
+                      placeholder="مثال: سالن همایش / استاد مربوطه"
+                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">توضیحات و سرفصل‌ها</label>
+                  <textarea
+                    rows={2}
+                    value={weeklyProgramForm.description}
+                    onChange={(e) => setWeeklyProgramForm({ ...weeklyProgramForm, description: e.target.value })}
+                    placeholder="توضیحات و جزئیات تکمیلی..."
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+
+                <div className="p-3 bg-slate-100/80 rounded-2xl border border-slate-200 text-[11px] text-slate-700 leading-relaxed font-medium">
+                  💡 <strong>توجه:</strong> ثبت این برنامه صرفاً برای مدیریت و آمارگیری جلسات پژوهشی/کارگاهی بوده و **هیچ کسری در آمار روزهای درسی اصلی کتب ایجاد نمیکند**.
+                </div>
+
+                <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                  {editingWeeklyProgram ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleOpenDeleteWeeklyProgram(editingWeeklyProgram.id, editingWeeklyProgram.title);
+                        setShowWeeklyProgramModal(false);
+                      }}
+                      className="px-4 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-xl border border-rose-200 flex items-center gap-1.5 transition-colors text-xs"
+                    >
+                      <Trash2 size={15} />
+                      <span>حذف کامل این برنامه</span>
+                    </button>
+                  ) : <div />}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowWeeklyProgramModal(false)}
+                      className="px-4 py-2.5 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200"
+                    >
+                      انصراف
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-5 py-2.5 bg-purple-600 text-white font-bold rounded-xl hover:bg-purple-700 shadow-md transition-all"
+                    >
+                      {editingWeeklyProgram ? 'ذخیره تغییرات' : 'ثبت برنامه'}
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* --- MODAL 8: GLOBAL DELETE CONFIRMATION MODAL --- */}
+      <AnimatePresence>
+        {deleteConfirmModal && deleteConfirmModal.isOpen && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl p-6 max-w-md w-full border border-slate-200 shadow-2xl space-y-4"
+              dir="rtl"
+            >
+              <div className="flex items-center gap-3 text-rose-600">
+                <div className="p-3 bg-rose-100 rounded-2xl">
+                  <Trash2 size={24} />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-800">تأیید حذف آیتم</h3>
+                  <p className="text-xs text-slate-500 font-bold">این عملیات غیرقابل بازگشت است.</p>
+                </div>
+              </div>
+
+              <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-xs text-slate-700 font-medium leading-relaxed">
+                آیا از حذف کامل <strong className="text-slate-900">«{deleteConfirmModal.title}»</strong> اطمینان دارید؟
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirmModal(null)}
+                  className="px-4 py-2.5 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 text-xs transition-colors"
+                >
+                  انصراف
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDeleteModal}
+                  className="px-5 py-2.5 bg-rose-600 text-white font-bold rounded-xl hover:bg-rose-700 shadow-md text-xs transition-colors"
+                >
+                  بله، حذف شود
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

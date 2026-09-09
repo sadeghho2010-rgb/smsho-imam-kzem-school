@@ -253,6 +253,27 @@ export interface AcademicSubPeriod {
   updatedAt?: string;
 }
 
+export type WeekDayName = 'شنبه' | 'یکشنبه' | 'دوشنبه' | 'سه‌شنبه' | 'چهارشنبه' | 'پنج‌شنبه' | 'جمعه';
+
+export interface AcademicWeeklyProgram {
+  id: string;
+  periodId: string;
+  title: string; // e.g., "برنامه کارگاه پژوهش", "جلسه اخلاق هفتگی", "همایش تخصصی"
+  scheduleType?: 'recurring' | 'custom_dates'; // 'recurring' (weekly) or 'custom_dates' (irregular specific dates)
+  dayOfWeek?: string; // e.g. "دوشنبه" or "شنبه، چهارشنبه" (kept for legacy/display compatibility)
+  daysOfWeek?: WeekDayName[]; // Multi-day selection e.g. ['دوشنبه', 'چهارشنبه']
+  specificDates?: string[]; // List of YYYY/MM/DD dates for irregular custom schedules
+  startDate: string; // Shamsi YYYY/MM/DD (defaults to period startDate)
+  endDate: string; // Shamsi YYYY/MM/DD (defaults to period endDate)
+  time?: string; // e.g. "10:00 تا 11:30"
+  locationOrTeacher?: string; // e.g. "سالن اجتماعات / استاد حسینی"
+  description?: string;
+  customCancelledDates?: string[]; // List of YYYY/MM/DD specific dates manually cancelled for this program
+  color?: string; // 'indigo' | 'emerald' | 'amber' | 'purple' | 'rose' | 'sky' | 'violet'
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface AcademicCalendarExportPackage {
   _meta: {
     system: 'TOLAB_ACADEMIC_CALENDAR';
@@ -262,11 +283,13 @@ export interface AcademicCalendarExportPackage {
     totalHolidays: number;
     totalHolidayTypes: number;
     totalSubPeriods?: number;
+    totalWeeklyPrograms?: number;
   };
   periods: AcademicCalendarPeriod[];
   holidays: AcademicHolidayItem[];
   holidayTypes: AcademicHolidayType[];
   subPeriods?: AcademicSubPeriod[];
+  weeklyPrograms?: AcademicWeeklyProgram[];
 }
 
 export type TeacherCategory = 

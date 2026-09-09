@@ -43,6 +43,7 @@ export interface FullBackupPackage {
   academic_holidays?: any[];
   academic_holiday_types?: any[];
   academic_sub_periods?: any[];
+  academic_weekly_programs?: any[];
   manager_files?: any[];
   settings?: any[];
   teachers?: any[];
@@ -77,6 +78,7 @@ export interface MentorBackupPackage {
   academic_holidays?: any[];
   academic_holiday_types?: any[];
   academic_sub_periods?: any[];
+  academic_weekly_programs?: any[];
   manager_files?: any[];
   settings?: any[];
   teachers?: any[];
@@ -134,6 +136,7 @@ export const COLLECTIONS = [
   'academic_holidays',
   'academic_holiday_types',
   'academic_sub_periods',
+  'academic_weekly_programs',
   'teachers'
 ] as const;
 
@@ -634,6 +637,7 @@ class LocalDatabase {
       academic_holidays,
       academic_holiday_types,
       academic_sub_periods,
+      academic_weekly_programs,
       settings,
       teachers
     ] = await Promise.all([
@@ -659,6 +663,7 @@ class LocalDatabase {
       this.getDocs('academic_holidays'),
       this.getDocs('academic_holiday_types'),
       this.getDocs('academic_sub_periods'),
+      this.getDocs('academic_weekly_programs'),
       this.getDocs('settings'),
       this.getDocs('teachers')
     ]);
@@ -725,6 +730,7 @@ class LocalDatabase {
       academic_holidays,
       academic_holiday_types,
       academic_sub_periods,
+      academic_weekly_programs,
       settings,
       teachers
     };
