@@ -78,9 +78,16 @@ export function formatShamsiDate(year: number, month: number, day: number): stri
 
 // Convert Shamsi string "1405/06/15" to JS Date
 export function shamsiToDate(shamsiStr: string): Date {
-  const { year, month, day } = parseShamsiDate(shamsiStr);
-  const { gy, gm, gd } = jalaali.toGregorian(year, month, day);
-  return new Date(gy, gm - 1, gd, 12, 0, 0); // Noon to avoid timezone boundary shifts
+  try {
+    const { year, month, day } = parseShamsiDate(shamsiStr);
+    const safeYear = Math.max(1300, Math.min(1500, year || 1405));
+    const safeMonth = Math.max(1, Math.min(12, month || 1));
+    const safeDay = Math.max(1, Math.min(31, day || 1));
+    const { gy, gm, gd } = jalaali.toGregorian(safeYear, safeMonth, safeDay);
+    return new Date(gy, gm - 1, gd, 12, 0, 0); // Noon to avoid timezone boundary shifts
+  } catch (e) {
+    return new Date();
+  }
 }
 
 // Convert JS Date to Shamsi string "1405/06/15"
@@ -146,15 +153,20 @@ export function isDateBetween(target: string, start: string, end: string): boole
 
 // Generate all Shamsi date strings between start and end inclusive
 export function generateShamsiDateRange(startShamsi: string, endShamsi: string): string[] {
+  if (!startShamsi || !endShamsi) return [];
   if (compareShamsi(startShamsi, endShamsi) > 0) return [];
   
   const results: string[] = [];
-  let current = shamsiToDate(startShamsi);
+  const current = shamsiToDate(startShamsi);
   const end = shamsiToDate(endShamsi);
 
-  while (current.getTime() <= end.getTime()) {
+  if (isNaN(current.getTime()) || isNaN(end.getTime())) return [];
+
+  let safety = 0;
+  while (current.getTime() <= end.getTime() && safety < 1500) {
     results.push(dateToShamsi(current));
     current.setDate(current.getDate() + 1);
+    safety++;
   }
 
   return results;

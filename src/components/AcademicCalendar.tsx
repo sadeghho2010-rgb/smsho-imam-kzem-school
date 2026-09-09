@@ -876,6 +876,29 @@ export default function AcademicCalendar() {
 
       if (isThu) {
         thursdayTotalCount++;
+        const override = selectedPeriod.thursdayOverrides?.[dateStr];
+        if (override) {
+          thursdayMode = override.mode;
+          thursdayTitle = override.title || (
+            override.mode === 'main_class' ? 'استثنای تک‌روزه: درس اصلی' :
+            override.mode === 'special_program' ? 'استثنای تک‌روزه: برنامه ویژه' : 'استثنای تک‌روزه: تعطیل'
+          );
+        } else {
+          // Check Thursday range rules
+          const matchingRange = (selectedPeriod.thursdayRanges || []).find(r => 
+            isDateBetween(dateStr, r.startDate, r.endDate)
+          );
+          if (matchingRange) {
+            thursdayMode = matchingRange.mode;
+            const rTitle = matchingRange.title ? ` (${matchingRange.title})` : '';
+            thursdayTitle = matchingRange.mode === 'main_class' ? `قانون بازه‌ای: درس اصلی${rTitle}` :
+                            matchingRange.mode === 'special_program' ? `قانون بازه‌ای: برنامه ویژه${rTitle}` :
+                            `قانون بازه‌ای: تعطیل${rTitle}`;
+          } else {
+            thursdayMode = selectedPeriod.defaultThursdayMode || 'off';
+            thursdayTitle = 'رویه عمومی سال تحصیلی';
+          }
+        }
       }
 
       if (holidayInfo) {
@@ -886,7 +909,7 @@ export default function AcademicCalendar() {
         const tName = holidayInfo.holiday.typeName || 'سایر';
         typeBreakdown[tName] = (typeBreakdown[tName] || 0) + 1;
       } else if (subPeriodInfo) {
-        // Special sub-period (e.g. هفته پژوهش)
+        // Special sub-period (e.g. کارگاه‌ها، آیین‌ها)
         isSubPeriod = true;
         if (subPeriodInfo.isStandardClassDay) {
           isStudyDay = true;
@@ -906,29 +929,6 @@ export default function AcademicCalendar() {
             weekendDays++;
           }
         } else if (isThu) {
-          const override = selectedPeriod.thursdayOverrides?.[dateStr];
-          if (override) {
-            thursdayMode = override.mode;
-            thursdayTitle = override.title || (
-              override.mode === 'main_class' ? 'استثنا: درس اصلی' :
-              override.mode === 'special_program' ? 'استثنا: برنامه ویژه' : 'استثنا: تعطیل'
-            );
-          } else {
-            // Check Thursday range rules
-            const matchingRange = (selectedPeriod.thursdayRanges || []).find(r => 
-              compareShamsi(dateStr, r.startDate) >= 0 && compareShamsi(dateStr, r.endDate) <= 0
-            );
-            if (matchingRange) {
-              thursdayMode = matchingRange.mode;
-              thursdayTitle = matchingRange.title || (
-                matchingRange.mode === 'main_class' ? 'قانون بازه‌ای: درس اصلی' :
-                matchingRange.mode === 'special_program' ? 'قانون بازه‌ای: برنامه ویژه' : 'قانون بازه‌ای: تعطیل'
-              );
-            } else {
-              thursdayMode = selectedPeriod.defaultThursdayMode || 'off';
-            }
-          }
-
           if (thursdayMode === 'main_class') {
             isStudyDay = true;
             standardStudyDays++;
@@ -1191,13 +1191,13 @@ export default function AcademicCalendar() {
   };
 
   // Thursday Range Rules CRUD Handlers
-  const handleOpenAddThursdayRange = () => {
+  const handleOpenAddThursdayRange = (presetStartDate?: string) => {
     setEditingThursdayRange(null);
     setThursdayRangeForm({
-      startDate: selectedPeriod?.startDate || getTodayShamsi(),
-      endDate: selectedPeriod?.endDate || getTodayShamsi(),
-      mode: 'main_class',
-      title: 'برنامه پنج‌شنبه‌ها'
+      startDate: presetStartDate || selectedPeriod?.startDate || getTodayShamsi(),
+      endDate: selectedPeriod?.endDate || presetStartDate || getTodayShamsi(),
+      mode: 'special_program',
+      title: 'برنامه بازه‌ای پنج‌شنبه‌ها'
     });
     setShowThursdayRangeModal(true);
   };
@@ -1217,38 +1217,53 @@ export default function AcademicCalendar() {
     e.preventDefault();
     if (!selectedPeriod) return;
 
-    const currentRanges = selectedPeriod.thursdayRanges || [];
-    let updatedRanges: ThursdayRangeSetting[] = [];
-
-    if (editingThursdayRange) {
-      updatedRanges = currentRanges.map(r => r.id === editingThursdayRange.id ? {
-        ...r,
-        startDate: thursdayRangeForm.startDate,
-        endDate: thursdayRangeForm.endDate,
-        mode: thursdayRangeForm.mode,
-        title: thursdayRangeForm.title.trim() || undefined
-      } : r);
-    } else {
-      const newRange: ThursdayRangeSetting = {
-        id: `tr-${Date.now()}`,
-        startDate: thursdayRangeForm.startDate,
-        endDate: thursdayRangeForm.endDate,
-        mode: thursdayRangeForm.mode,
-        title: thursdayRangeForm.title.trim() || undefined
-      };
-      updatedRanges = [...currentRanges, newRange];
+    if (!thursdayRangeForm.startDate.trim() || !thursdayRangeForm.endDate.trim()) {
+      alert("لطفاً هر دو تاریخ شروع و پایان بازه را وارد کنید.");
+      return;
     }
 
-    const updatedPeriod: AcademicCalendarPeriod = {
-      ...selectedPeriod,
-      thursdayRanges: updatedRanges,
-      updatedAt: new Date().toISOString()
-    };
+    if (compareShamsi(thursdayRangeForm.startDate, thursdayRangeForm.endDate) > 0) {
+      alert("تاریخ شروع بازه نمی‌تواند بعد از تاریخ پایان باشد.");
+      return;
+    }
 
-    await localDb.setDoc('academic_calendar_periods', updatedPeriod);
-    setPeriods(prev => prev.map(p => p.id === updatedPeriod.id ? updatedPeriod : p));
-    setShowThursdayRangeModal(false);
-    showToast("قانون بازه‌ای پنج‌شنبه‌ها با موفقیت ذخیره شد.");
+    try {
+      const currentRanges = selectedPeriod.thursdayRanges || [];
+      let updatedRanges: ThursdayRangeSetting[] = [];
+
+      if (editingThursdayRange) {
+        updatedRanges = currentRanges.map(r => r.id === editingThursdayRange.id ? {
+          ...r,
+          startDate: thursdayRangeForm.startDate.trim(),
+          endDate: thursdayRangeForm.endDate.trim(),
+          mode: thursdayRangeForm.mode,
+          title: thursdayRangeForm.title.trim() || undefined
+        } : r);
+      } else {
+        const newRange: ThursdayRangeSetting = {
+          id: `tr-${Date.now()}`,
+          startDate: thursdayRangeForm.startDate.trim(),
+          endDate: thursdayRangeForm.endDate.trim(),
+          mode: thursdayRangeForm.mode,
+          title: thursdayRangeForm.title.trim() || undefined
+        };
+        updatedRanges = [...currentRanges, newRange];
+      }
+
+      const updatedPeriod: AcademicCalendarPeriod = {
+        ...selectedPeriod,
+        thursdayRanges: updatedRanges,
+        updatedAt: new Date().toISOString()
+      };
+
+      await localDb.setDoc('academic_calendar_periods', updatedPeriod);
+      setPeriods(prev => prev.map(p => p.id === updatedPeriod.id ? updatedPeriod : p));
+      setShowThursdayRangeModal(false);
+      showToast("قانون بازه‌ای پنج‌شنبه‌ها با موفقیت ذخیره شد.");
+    } catch (err) {
+      console.error("Error saving thursday range:", err);
+      alert("خطا در ذخیره قانون بازه‌ای.");
+    }
   };
 
   const handleDeleteThursdayRange = async (rangeId: string) => {
@@ -1846,13 +1861,27 @@ export default function AcademicCalendar() {
       </div>
 
       {/* Overview Stat Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-1">
           <span className="text-[10px] font-bold text-slate-400 block">کل روزهای دوره</span>
           <div className="flex items-baseline gap-1">
             <span className="text-xl font-black text-slate-800">{dateAnalysis.totalDays}</span>
             <span className="text-[10px] text-slate-500 font-bold">روز</span>
           </div>
+        </div>
+
+        <div className="bg-indigo-50/80 p-4 rounded-2xl border border-indigo-200 shadow-xs space-y-1">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-indigo-900 block">مجموع روزهای تحصیلی</span>
+            <span className="text-[9px] bg-indigo-200/80 text-indigo-900 px-1.5 py-0.5 rounded font-black">حضور</span>
+          </div>
+          <div className="flex items-baseline gap-1">
+            <span className="text-xl font-black text-indigo-800">{dateAnalysis.totalAcademicPresenceDays}</span>
+            <span className="text-[10px] text-indigo-700 font-bold">روز تحصیلی</span>
+          </div>
+          <span className="text-[9px] text-indigo-600/90 font-medium block">
+            ({dateAnalysis.totalDays} کل - {dateAnalysis.holidayDaysCount + dateAnalysis.weekendDays} تعطیلات)
+          </span>
         </div>
 
         <div className="bg-emerald-50/70 p-4 rounded-2xl border border-emerald-200 shadow-xs space-y-1">
@@ -1863,11 +1892,33 @@ export default function AcademicCalendar() {
           </div>
         </div>
 
-        <div className="bg-violet-50/80 p-4 rounded-2xl border border-violet-200 shadow-xs space-y-1">
-          <span className="text-[10px] font-bold text-violet-900 block">دوره‌های ویژه (هفته پژوهش)</span>
+        <div className="bg-violet-50/80 p-4 rounded-2xl border border-violet-200 shadow-xs space-y-2">
+          <span className="text-[10px] font-bold text-violet-900 block">دوره‌های ویژه</span>
           <div className="flex items-baseline gap-1">
             <span className="text-xl font-black text-violet-800">{dateAnalysis.specialAcademicDays}</span>
             <span className="text-[10px] text-violet-700 font-bold">روز حضور غیردرسی</span>
+          </div>
+
+          {/* Detailed breakdown of special periods and days count */}
+          <div className="pt-2 border-t border-violet-200/60 space-y-1 text-[10px]">
+            {periodSubPeriods.map(sp => {
+              const daysCount = generateShamsiDateRange(sp.startDate, sp.endDate || sp.startDate).length;
+              return (
+                <div key={sp.id} className="flex items-center justify-between font-bold text-violet-950">
+                  <span className="truncate max-w-[120px]" title={sp.title}>• {sp.title}</span>
+                  <span className="bg-violet-200/80 px-1.5 py-0.5 rounded text-violet-900 font-black">{daysCount} روز</span>
+                </div>
+              );
+            })}
+            {dateAnalysis.thursdaySpecialCount > 0 && (
+              <div className="flex items-center justify-between font-bold text-violet-950">
+                <span className="truncate max-w-[120px]">• پنج‌شنبه‌های ویژه</span>
+                <span className="bg-violet-200/80 px-1.5 py-0.5 rounded text-violet-900 font-black">{dateAnalysis.thursdaySpecialCount} روز</span>
+              </div>
+            )}
+            {periodSubPeriods.length === 0 && dateAnalysis.thursdaySpecialCount === 0 && (
+              <span className="text-violet-500 font-medium block text-[9px]">دوره ویژه‌ای ثبت نشده</span>
+            )}
           </div>
         </div>
 
@@ -2440,35 +2491,48 @@ export default function AcademicCalendar() {
                             <td className="p-3 font-bold text-slate-800">{d.dateStr}</td>
                             <td className="p-3 text-slate-600">{getShamsiMonthName(dateParts.month)} {dateParts.year}</td>
                             <td className="p-3">
-                              {d.isHoliday ? (
-                                <span className="px-2.5 py-1 bg-rose-100 text-rose-800 font-bold rounded-lg border border-rose-200 inline-block">
-                                  🔴 تعطیل ({d.holidayInfo?.holiday.title})
-                                </span>
-                              ) : d.isSubPeriod ? (
-                                <span className="px-2.5 py-1 bg-purple-100 text-purple-800 font-bold rounded-lg border border-purple-200 inline-block">
-                                  🟣 دوره ویژه: {d.subPeriodInfo?.title}
-                                </span>
-                              ) : d.thursdayMode === 'special_program' ? (
-                                <span className="px-2.5 py-1 bg-amber-100 text-amber-900 font-bold rounded-lg border border-amber-300 inline-block">
-                                  🟪 برنامه ویژه (دروس غیرکتابی)
-                                </span>
-                              ) : d.thursdayMode === 'main_class' ? (
-                                <span className="px-2.5 py-1 bg-emerald-100 text-emerald-900 font-bold rounded-lg border border-emerald-300 inline-block">
-                                  📘 درس اصلی (تدریس کتاب)
-                                </span>
-                              ) : (
-                                <span className="px-2.5 py-1 bg-slate-100 text-slate-700 font-bold rounded-lg border border-slate-300 inline-block">
-                                  ⚪ تعطیل هفته
-                                </span>
-                              )}
-                              {isOverride && (
-                                <span className="mr-2 text-[9px] bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded-full font-bold">
-                                  سفارشی
-                                </span>
-                              )}
+                              <div className="space-y-1">
+                                {d.isHoliday ? (
+                                  <span className="px-2.5 py-1 bg-rose-100 text-rose-800 font-bold rounded-lg border border-rose-200 inline-block">
+                                    🔴 تعطیل ({d.holidayInfo?.holiday.title})
+                                  </span>
+                                ) : d.isSubPeriod ? (
+                                  <span className="px-2.5 py-1 bg-purple-100 text-purple-800 font-bold rounded-lg border border-purple-200 inline-block">
+                                    🟣 دوره ویژه: {d.subPeriodInfo?.title}
+                                  </span>
+                                ) : d.thursdayMode === 'special_program' ? (
+                                  <span className="px-2.5 py-1 bg-amber-100 text-amber-900 font-bold rounded-lg border border-amber-300 inline-block">
+                                    🟪 برنامه ویژه (دروس غیرکتابی)
+                                  </span>
+                                ) : d.thursdayMode === 'main_class' ? (
+                                  <span className="px-2.5 py-1 bg-emerald-100 text-emerald-900 font-bold rounded-lg border border-emerald-300 inline-block">
+                                    📘 درس اصلی (تدریس کتاب)
+                                  </span>
+                                ) : (
+                                  <span className="px-2.5 py-1 bg-slate-100 text-slate-700 font-bold rounded-lg border border-slate-300 inline-block">
+                                    ⚪ تعطیل هفته
+                                  </span>
+                                )}
+                                {isOverride && (
+                                  <span className="mr-2 text-[9px] bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded-full font-bold">
+                                    سفارشی تک‌روزه
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td className="p-3 text-slate-700 font-medium">
-                              {d.thursdayTitle || '---'}
+                              {d.thursdayTitle?.includes('قانون بازه‌ای') ? (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-900 border border-amber-200 font-bold text-xs">
+                                  <Sparkles size={13} className="text-amber-600 shrink-0" />
+                                  <span>{d.thursdayTitle}</span>
+                                </span>
+                              ) : d.thursdayTitle?.includes('استثنای تک‌روزه') ? (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-900 border border-indigo-200 font-bold text-xs">
+                                  <span>✏️ {d.thursdayTitle}</span>
+                                </span>
+                              ) : (
+                                <span className="text-slate-600 text-xs">{d.thursdayTitle || 'رویه عمومی سال تحصیلی'}</span>
+                              )}
                             </td>
                             <td className="p-3">
                               <div className="flex items-center justify-center gap-1.5">
@@ -3611,7 +3675,12 @@ export default function AcademicCalendar() {
       {/* --- MODAL FOR THURSDAY RANGE RULE --- */}
       <AnimatePresence>
         {showThursdayRangeModal && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setShowThursdayRangeModal(false);
+            }}
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto"
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -3624,7 +3693,11 @@ export default function AcademicCalendar() {
                   <Sparkles size={18} className="text-amber-600" />
                   <span>{editingThursdayRange ? 'ویرایش قانون بازه‌ای پنج‌شنبه‌ها' : 'افزودن قانون بازه‌ای جدید برای پنج‌شنبه‌ها'}</span>
                 </h3>
-                <button onClick={() => setShowThursdayRangeModal(false)} className="text-slate-400 hover:text-slate-600">
+                <button
+                  type="button"
+                  onClick={() => setShowThursdayRangeModal(false)}
+                  className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors"
+                >
                   <XCircle size={22} />
                 </button>
               </div>
@@ -3656,25 +3729,10 @@ export default function AcademicCalendar() {
                   />
                 </div>
 
-                <div className="space-y-2 bg-amber-50/70 p-3.5 rounded-2xl border border-amber-200/80">
+                <div className="space-y-2.5 bg-amber-50/70 p-3.5 rounded-2xl border border-amber-200/80">
                   <span className="font-bold text-amber-950 block text-xs mb-1">وضعیت پنج‌شنبه‌ها در این بازه زمانی *</span>
 
-                  <label className="flex items-start gap-2 cursor-pointer text-xs">
-                    <input
-                      type="radio"
-                      name="rangeThuMode"
-                      value="main_class"
-                      checked={thursdayRangeForm.mode === 'main_class'}
-                      onChange={() => setThursdayRangeForm({ ...thursdayRangeForm, mode: 'main_class' })}
-                      className="w-4 h-4 text-emerald-600 focus:ring-emerald-500 mt-0.5"
-                    />
-                    <div>
-                      <span className="font-bold text-slate-800 block">📘 برنامه درسی اصلی کامل (کتاب)</span>
-                      <span className="text-[10px] text-slate-500">تدریس کتب درسی و محاسبه به عنوان روز درسی استاندارد</span>
-                    </div>
-                  </label>
-
-                  <label className="flex items-start gap-2 cursor-pointer text-xs">
+                  <label className="flex items-start gap-2.5 cursor-pointer text-xs p-2 rounded-xl hover:bg-amber-100/50 transition-colors">
                     <input
                       type="radio"
                       name="rangeThuMode"
@@ -3685,11 +3743,26 @@ export default function AcademicCalendar() {
                     />
                     <div>
                       <span className="font-bold text-slate-800 block">🟪 برنامه ویژه (دروس غیرکتابی / مهارتی)</span>
-                      <span className="text-[10px] text-slate-500">اخلاق، کارگاه‌های مهارتی، تجوید (حضور تحصیلی دارد اما درس اصلی کتب نیست)</span>
+                      <span className="text-[10px] text-slate-600">اخلاق، کارگاه‌های مهارتی، تجوید (حضور تحصیلی دارد اما درس اصلی کتب نیست)</span>
                     </div>
                   </label>
 
-                  <label className="flex items-start gap-2 cursor-pointer text-xs">
+                  <label className="flex items-start gap-2.5 cursor-pointer text-xs p-2 rounded-xl hover:bg-emerald-100/50 transition-colors">
+                    <input
+                      type="radio"
+                      name="rangeThuMode"
+                      value="main_class"
+                      checked={thursdayRangeForm.mode === 'main_class'}
+                      onChange={() => setThursdayRangeForm({ ...thursdayRangeForm, mode: 'main_class' })}
+                      className="w-4 h-4 text-emerald-600 focus:ring-emerald-500 mt-0.5"
+                    />
+                    <div>
+                      <span className="font-bold text-slate-800 block">📘 برنامه درسی اصلی کامل (کتاب)</span>
+                      <span className="text-[10px] text-slate-600">تدریس کتب درسی و محاسبه به عنوان روز درسی استاندارد</span>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-2.5 cursor-pointer text-xs p-2 rounded-xl hover:bg-slate-200/50 transition-colors">
                     <input
                       type="radio"
                       name="rangeThuMode"
@@ -3700,7 +3773,7 @@ export default function AcademicCalendar() {
                     />
                     <div>
                       <span className="font-bold text-slate-800 block">⚪ تعطیل کامل (آخر هفته)</span>
-                      <span className="text-[10px] text-slate-500">پنج‌شنبه‌ها در این بازه تعطیل خواهد بود</span>
+                      <span className="text-[10px] text-slate-600">پنج‌شنبه‌ها در این بازه تعطیل خواهد بود</span>
                     </div>
                   </label>
                 </div>
@@ -3709,13 +3782,13 @@ export default function AcademicCalendar() {
                   <button
                     type="button"
                     onClick={() => setShowThursdayRangeModal(false)}
-                    className="px-4 py-2.5 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200"
+                    className="px-4 py-2.5 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 cursor-pointer"
                   >
                     انصراف
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2.5 bg-amber-600 text-white font-bold rounded-xl hover:bg-amber-700 shadow-md"
+                    className="px-5 py-2.5 bg-amber-600 text-white font-bold rounded-xl hover:bg-amber-700 shadow-md cursor-pointer"
                   >
                     ثبت قانون بازه‌ای
                   </button>
@@ -3898,10 +3971,15 @@ export default function AcademicCalendar() {
                   </div>
 
                   {/* Summary Metric Strip */}
-                  <div className="grid grid-cols-5 gap-2 bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-center text-xs">
+                  <div className="grid grid-cols-6 gap-2 bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-center text-xs">
                     <div className="bg-white p-2 rounded-lg border border-slate-200">
                       <span className="text-[10px] text-slate-500 font-bold block">کل ایام دوره</span>
                       <span className="text-sm font-black text-slate-900">{dateAnalysis.totalDays} روز</span>
+                    </div>
+
+                    <div className="bg-indigo-50 p-2 rounded-lg border border-indigo-200">
+                      <span className="text-[10px] text-indigo-700 font-bold block">مجموع روزهای تحصیلی</span>
+                      <span className="text-sm font-black text-indigo-900">{dateAnalysis.totalAcademicPresenceDays} روز</span>
                     </div>
 
                     <div className="bg-white p-2 rounded-lg border border-slate-200">
@@ -3910,18 +3988,18 @@ export default function AcademicCalendar() {
                     </div>
 
                     <div className="bg-white p-2 rounded-lg border border-slate-200">
-                      <span className="text-[10px] text-slate-500 font-bold block">دوره‌های ویژه (پژوهش)</span>
+                      <span className="text-[10px] text-slate-500 font-bold block">برنامه و دوره‌های ویژه</span>
                       <span className="text-sm font-black text-violet-800">{dateAnalysis.specialAcademicDays} روز</span>
                     </div>
 
                     <div className="bg-white p-2 rounded-lg border border-slate-200">
-                      <span className="text-[10px] text-slate-500 font-bold block">عناوین تعطیلات</span>
-                      <span className="text-sm font-black text-rose-700">{periodHolidays.length} عنوان</span>
+                      <span className="text-[10px] text-slate-500 font-bold block">تعطیلات مناسبتی</span>
+                      <span className="text-sm font-black text-rose-700">{dateAnalysis.holidayDaysCount} روز</span>
                     </div>
 
                     <div className="bg-white p-2 rounded-lg border border-slate-200">
-                      <span className="text-[10px] text-slate-500 font-bold block">کل روزهای تعطیل</span>
-                      <span className="text-sm font-black text-rose-800">{dateAnalysis.holidayDaysCount} روز</span>
+                      <span className="text-[10px] text-slate-500 font-bold block">تعطیلات آخر هفته</span>
+                      <span className="text-sm font-black text-amber-700">{dateAnalysis.weekendDays} روز</span>
                     </div>
                   </div>
 
@@ -4083,6 +4161,39 @@ export default function AcademicCalendar() {
                 <button onClick={() => setShowThursdayModal(false)} className="text-slate-400 hover:text-slate-600">
                   <XCircle size={22} />
                 </button>
+              </div>
+
+              {/* Quick Action Shortcuts */}
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowThursdayModal(false);
+                    handleOpenAddHoliday(selectedThursdayDate);
+                  }}
+                  className="p-2.5 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 font-bold rounded-xl flex items-center justify-center gap-1.5 transition-colors"
+                >
+                  <Plus size={14} className="text-rose-600" />
+                  <span>ثبت تعطیلی برای این روز</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowThursdayModal(false);
+                    handleOpenAddThursdayRange(selectedThursdayDate);
+                  }}
+                  className="p-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 font-bold rounded-xl flex items-center justify-center gap-1.5 transition-colors"
+                >
+                  <Sparkles size={14} className="text-indigo-600" />
+                  <span>تنظیم بازه‌ای پنج‌شنبه‌ها</span>
+                </button>
+              </div>
+
+              <div className="relative flex py-1 items-center">
+                <div className="flex-grow border-t border-slate-200"></div>
+                <span className="flex-shrink mx-3 text-[10px] font-bold text-slate-400">یا تغییر وضعیت تک‌روزه این پنج‌شنبه</span>
+                <div className="flex-grow border-t border-slate-200"></div>
               </div>
 
               <form onSubmit={handleSaveThursdayOverride} className="space-y-4 text-xs">
