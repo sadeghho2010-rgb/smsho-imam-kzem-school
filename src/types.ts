@@ -198,6 +198,14 @@ export interface DiscussionGroup {
 // Academic Calendar Types
 export type ThursdayMode = 'special_program' | 'main_class' | 'off';
 
+export interface ThursdayRangeSetting {
+  id: string;
+  startDate: string; // Shamsi YYYY/MM/DD
+  endDate: string; // Shamsi YYYY/MM/DD
+  mode: ThursdayMode; // 'main_class' (کلاس درس اصلی) | 'special_program' (برنامه ویژه / حضور غیردرسی) | 'off' (تعطیل)
+  title?: string;
+}
+
 export interface ThursdayOverride {
   dateStr: string; // Shamsi YYYY/MM/DD
   mode: ThursdayMode; // 'special_program' | 'main_class' | 'off'
@@ -211,9 +219,10 @@ export interface AcademicCalendarPeriod {
   startDate: string; // Shamsi YYYY/MM/DD e.g. "1405/06/15"
   endDate: string; // Shamsi YYYY/MM/DD e.g. "1406/03/20"
   description?: string;
-  includeThursdayAsStudyDay: boolean; // kept for compatibility
-  defaultThursdayMode?: ThursdayMode; // 'special_program' | 'main_class' | 'off'
-  thursdayOverrides?: Record<string, ThursdayOverride>; // map dateStr -> ThursdayOverride
+  defaultThursdayMode?: ThursdayMode; // Fallback mode if no range matches (default: 'off')
+  thursdayRanges?: ThursdayRangeSetting[]; // Range-based rules for Thursday modes
+  thursdayOverrides?: Record<string, ThursdayOverride>; // Single-day overrides (dateStr -> ThursdayOverride)
+  includeThursdayAsStudyDay?: boolean; // legacy compatibility
   includeFridayAsStudyDay: boolean;
   createdAt: string;
   updatedAt?: string;
