@@ -13,7 +13,8 @@ import {
   HardDrive,
   RefreshCw,
   ShieldCheck,
-  FolderOpen
+  FolderOpen,
+  Clock
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useMentor } from '../context/MentorContext';
@@ -28,6 +29,7 @@ interface SidebarProps {
 const baseMenuItems = [
   { id: 'todos', label: 'پیگیری‌ها', icon: GraduationCap },
   { id: 'academic-calendar', label: 'تقویم آموزشی', icon: CalendarDays },
+  { id: 'presence-hours', label: 'ثبت ساعت حضور', icon: Clock },
   { id: 'students', label: 'همه کاربران', icon: Users },
   { id: 'active-students', label: 'کاربران فعال', icon: UserCheck },
   { id: 'discussion', label: 'بخش مباحثه', icon: Users },

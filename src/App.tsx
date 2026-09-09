@@ -18,6 +18,7 @@ import TodoList from './components/TodoList';
 import StudentComments from './components/StudentComments';
 import StudyDiscussion from './components/StudyDiscussion';
 import AcademicCalendar from './components/AcademicCalendar';
+import PresenceHours from './components/PresenceHours';
 import TeachersBank from './components/TeachersBank';
 import MentorSelectorModal from './components/MentorSelectorModal';
 import { MentorProvider, useMentor } from './context/MentorContext';
@@ -76,6 +77,8 @@ function AppContent() {
         return <TodoList />;
       case 'academic-calendar':
         return <AcademicCalendar />;
+      case 'presence-hours':
+        return <PresenceHours />;
       case 'summary':
         return <Summary onNavigate={handleNavigate} initialStudentId={selectedStudentIdForTab} />;
       case 'teachers-bank':
@@ -128,6 +131,7 @@ function AppContent() {
                 <h2 className="text-sm font-bold text-slate-800">
                   {activeTab === 'todos' ? 'پیگیری‌ها' :
                    activeTab === 'academic-calendar' ? 'تقویم آموزشی و سالنامه تحصیلی' :
+                   activeTab === 'presence-hours' ? 'بخش ثبت ساعت حضور و کارکرد' :
                    activeTab === 'students' ? 'مدیریت کل کاربران (مشترک)' :
                    activeTab === 'active-students' ? 'لیست کاربران فعال' :
                    activeTab === 'manager-files' ? (currentMentor.isHeadManager ? 'ارسال فایل برای کاربران' : 'فایل‌های ارسالی مدیر') :

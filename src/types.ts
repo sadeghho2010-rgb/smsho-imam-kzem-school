@@ -195,6 +195,28 @@ export interface DiscussionGroup {
   updatedAt?: string;
 }
 
+// Presence & Hours Tracking Types
+export interface PresenceHoursLog {
+  id: string;
+  mentorId?: string;
+  date: string; // Shamsi date string, e.g. "1405/06/15"
+  startTime?: string; // e.g. "08:00"
+  endTime?: string; // e.g. "16:30"
+  durationHours: number; // e.g. 8.5
+  description?: string;
+  category?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface PresenceCycleSettings {
+  id: string;
+  mentorId?: string;
+  startShamsiDate: string;
+  endShamsiDate: string;
+  title?: string;
+}
+
 // Academic Calendar Types
 export type ThursdayMode = 'special_program' | 'main_class' | 'off';
 

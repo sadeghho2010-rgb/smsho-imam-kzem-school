@@ -163,8 +163,8 @@ export default function AcademicCalendar() {
     description: ''
   });
 
-  // Thursday Range Rules Modal State
-  const [showThursdayRangeModal, setShowThursdayRangeModal] = useState(false);
+  // Thursday Range Rules Inline Form State
+  const [showInlineThursdayForm, setShowInlineThursdayForm] = useState(false);
   const [editingThursdayRange, setEditingThursdayRange] = useState<ThursdayRangeSetting | null>(null);
   const [thursdayRangeForm, setThursdayRangeForm] = useState<{
     startDate: string;
@@ -174,7 +174,7 @@ export default function AcademicCalendar() {
   }>({
     startDate: getTodayShamsi(),
     endDate: getTodayShamsi(),
-    mode: 'main_class',
+    mode: 'special_program',
     title: ''
   });
 
@@ -1199,7 +1199,7 @@ export default function AcademicCalendar() {
       mode: 'special_program',
       title: 'برنامه بازه‌ای پنج‌شنبه‌ها'
     });
-    setShowThursdayRangeModal(true);
+    setShowInlineThursdayForm(true);
   };
 
   const handleOpenEditThursdayRange = (r: ThursdayRangeSetting) => {
@@ -1210,7 +1210,7 @@ export default function AcademicCalendar() {
       mode: r.mode,
       title: r.title || ''
     });
-    setShowThursdayRangeModal(true);
+    setShowInlineThursdayForm(true);
   };
 
   const handleSaveThursdayRange = async (e: React.FormEvent) => {
@@ -1258,7 +1258,7 @@ export default function AcademicCalendar() {
 
       await localDb.setDoc('academic_calendar_periods', updatedPeriod);
       setPeriods(prev => prev.map(p => p.id === updatedPeriod.id ? updatedPeriod : p));
-      setShowThursdayRangeModal(false);
+      setShowInlineThursdayForm(false);
       showToast("قانون بازه‌ای پنج‌شنبه‌ها با موفقیت ذخیره شد.");
     } catch (err) {
       console.error("Error saving thursday range:", err);
@@ -2360,26 +2360,159 @@ export default function AcademicCalendar() {
           </div>
 
           {/* Thursday Range-Based Rules Section */}
-          <div className="bg-gradient-to-r from-amber-50/80 via-orange-50/50 to-amber-50/80 rounded-2xl p-4 border border-amber-200/80 space-y-3">
-            <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="bg-gradient-to-r from-amber-50/80 via-orange-50/50 to-amber-50/80 rounded-2xl p-4 sm:p-5 border border-amber-200/80 space-y-4">
+            <div className="flex items-center justify-between flex-wrap gap-3 border-b border-amber-200/60 pb-3">
               <div className="space-y-0.5">
                 <h4 className="text-xs font-black text-amber-950 flex items-center gap-1.5">
                   <Sparkles size={16} className="text-amber-600" />
                   <span>تنظیمات و قوانین بازه‌ای پنج‌شنبه‌ها در دوره فعال</span>
                 </h4>
                 <p className="text-[11px] text-amber-800/80 font-medium leading-relaxed">
-                  مثلاً: در یک بازه زمانی پنج‌شنبه‌ها برنامه درسی اصلی است، و در بازه‌ای دیگر برنامه ویژه (غیر درسی) برگزار می‌شود.
+                  تعیین وضعیت پنج‌شنبه‌ها (برنامه ویژه، درس اصلی، یا تعطیل) در بازه‌های زمانی مختلف نیم‌سال.
                 </p>
               </div>
 
               <button
-                onClick={handleOpenAddThursdayRange}
-                className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5 shrink-0"
+                type="button"
+                onClick={() => {
+                  if (showInlineThursdayForm) {
+                    setShowInlineThursdayForm(false);
+                  } else {
+                    handleOpenAddThursdayRange();
+                  }
+                }}
+                className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer"
               >
                 <Plus size={14} />
-                <span>افزودن بازه جدید برای پنج‌شنبه‌ها</span>
+                <span>{showInlineThursdayForm ? 'بستن فرم' : 'افزودن بازه جدید برای پنج‌شنبه‌ها'}</span>
               </button>
             </div>
+
+            {/* INLINE FORM FOR THURSDAY RANGE RULE */}
+            {showInlineThursdayForm && (
+              <form onSubmit={handleSaveThursdayRange} className="bg-white rounded-2xl p-4 sm:p-5 border-2 border-amber-400 shadow-md space-y-4 text-xs">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+                  <span className="font-black text-slate-800 text-xs flex items-center gap-1.5">
+                    <Sparkles size={15} className="text-amber-600" />
+                    <span>{editingThursdayRange ? 'ویرایش قانون بازه‌ای پنج‌شنبه‌ها' : 'ثبت قانون بازه‌ای جدید برای پنج‌شنبه‌ها'}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowInlineThursdayForm(false)}
+                    className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors"
+                  >
+                    <XCircle size={18} />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-1">
+                    <label className="block font-bold text-slate-700 mb-1">عنوان بازه (اختیاری)</label>
+                    <input
+                      type="text"
+                      value={thursdayRangeForm.title}
+                      onChange={(e) => setThursdayRangeForm({ ...thursdayRangeForm, title: e.target.value })}
+                      placeholder="مثلا: پنج‌شنبه‌های نیم‌سال اول"
+                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+
+                  <div>
+                    <ShamsiDatePicker
+                      label="از تاریخ (شمسی) *"
+                      required
+                      value={thursdayRangeForm.startDate}
+                      onChange={(d) => setThursdayRangeForm({ ...thursdayRangeForm, startDate: d })}
+                    />
+                  </div>
+
+                  <div>
+                    <ShamsiDatePicker
+                      label="تا تاریخ (شمسی) *"
+                      required
+                      value={thursdayRangeForm.endDate}
+                      onChange={(d) => setThursdayRangeForm({ ...thursdayRangeForm, endDate: d })}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2 bg-amber-50/80 p-3.5 rounded-xl border border-amber-200/90">
+                  <span className="font-bold text-amber-950 block text-xs mb-1">وضعیت پنج‌شنبه‌ها در این بازه زمانی *</span>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <label className={cn(
+                      "flex items-start gap-2 cursor-pointer p-2.5 rounded-xl border transition-all text-xs",
+                      thursdayRangeForm.mode === 'special_program' ? "bg-amber-100/90 border-amber-400 text-amber-950 font-bold" : "bg-white border-slate-200 text-slate-700 hover:bg-amber-50"
+                    )}>
+                      <input
+                        type="radio"
+                        name="inlineRangeThuMode"
+                        value="special_program"
+                        checked={thursdayRangeForm.mode === 'special_program'}
+                        onChange={() => setThursdayRangeForm({ ...thursdayRangeForm, mode: 'special_program' })}
+                        className="w-4 h-4 text-amber-600 focus:ring-amber-500 mt-0.5"
+                      />
+                      <div>
+                        <span className="font-bold block">🟪 برنامه ویژه</span>
+                        <span className="text-[10px] opacity-80">غیر درسی (حضور تحصیلی دارد)</span>
+                      </div>
+                    </label>
+
+                    <label className={cn(
+                      "flex items-start gap-2 cursor-pointer p-2.5 rounded-xl border transition-all text-xs",
+                      thursdayRangeForm.mode === 'main_class' ? "bg-emerald-100/90 border-emerald-400 text-emerald-950 font-bold" : "bg-white border-slate-200 text-slate-700 hover:bg-emerald-50"
+                    )}>
+                      <input
+                        type="radio"
+                        name="inlineRangeThuMode"
+                        value="main_class"
+                        checked={thursdayRangeForm.mode === 'main_class'}
+                        onChange={() => setThursdayRangeForm({ ...thursdayRangeForm, mode: 'main_class' })}
+                        className="w-4 h-4 text-emerald-600 focus:ring-emerald-500 mt-0.5"
+                      />
+                      <div>
+                        <span className="font-bold block">📘 برنامه درسی اصلی</span>
+                        <span className="text-[10px] opacity-80">تدریس کتب درسی</span>
+                      </div>
+                    </label>
+
+                    <label className={cn(
+                      "flex items-start gap-2 cursor-pointer p-2.5 rounded-xl border transition-all text-xs",
+                      thursdayRangeForm.mode === 'off' ? "bg-slate-200 border-slate-400 text-slate-900 font-bold" : "bg-white border-slate-200 text-slate-700 hover:bg-slate-100"
+                    )}>
+                      <input
+                        type="radio"
+                        name="inlineRangeThuMode"
+                        value="off"
+                        checked={thursdayRangeForm.mode === 'off'}
+                        onChange={() => setThursdayRangeForm({ ...thursdayRangeForm, mode: 'off' })}
+                        className="w-4 h-4 text-slate-600 focus:ring-slate-500 mt-0.5"
+                      />
+                      <div>
+                        <span className="font-bold block">⚪ تعطیل کامل</span>
+                        <span className="text-[10px] opacity-80">آخر هفته تعطیل</span>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowInlineThursdayForm(false)}
+                    className="px-4 py-2 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 cursor-pointer"
+                  >
+                    انصراف
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl shadow-xs cursor-pointer"
+                  >
+                    تایید و ثبت قانون پنج‌شنبه‌ها
+                  </button>
+                </div>
+              </form>
+            )}
 
             {/* Active Thursday Ranges Cards */}
             {(selectedPeriod?.thursdayRanges || []).length > 0 ? (
@@ -3672,132 +3805,7 @@ export default function AcademicCalendar() {
         )}
       </AnimatePresence>
 
-      {/* --- MODAL FOR THURSDAY RANGE RULE --- */}
-      <AnimatePresence>
-        {showThursdayRangeModal && (
-          <div
-            onClick={(e) => {
-              if (e.target === e.currentTarget) setShowThursdayRangeModal(false);
-            }}
-            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto"
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-3xl p-6 max-w-lg w-full border border-slate-200 shadow-2xl space-y-5 my-auto"
-              dir="rtl"
-            >
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <h3 className="text-base font-black text-slate-800 flex items-center gap-2">
-                  <Sparkles size={18} className="text-amber-600" />
-                  <span>{editingThursdayRange ? 'ویرایش قانون بازه‌ای پنج‌شنبه‌ها' : 'افزودن قانون بازه‌ای جدید برای پنج‌شنبه‌ها'}</span>
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => setShowThursdayRangeModal(false)}
-                  className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors"
-                >
-                  <XCircle size={22} />
-                </button>
-              </div>
 
-              <form onSubmit={handleSaveThursdayRange} className="space-y-4 text-xs">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">عنوان بازه (اختیاری)</label>
-                  <input
-                    type="text"
-                    value={thursdayRangeForm.title}
-                    onChange={(e) => setThursdayRangeForm({ ...thursdayRangeForm, title: e.target.value })}
-                    placeholder="مثلا: پنج‌شنبه‌های نیم‌سال اول، پنج‌شنبه‌های کارگاهی و..."
-                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <ShamsiDatePicker
-                    label="از تاریخ (شمسی) *"
-                    required
-                    value={thursdayRangeForm.startDate}
-                    onChange={(d) => setThursdayRangeForm({ ...thursdayRangeForm, startDate: d })}
-                  />
-                  <ShamsiDatePicker
-                    label="تا تاریخ (شمسی) *"
-                    required
-                    value={thursdayRangeForm.endDate}
-                    onChange={(d) => setThursdayRangeForm({ ...thursdayRangeForm, endDate: d })}
-                  />
-                </div>
-
-                <div className="space-y-2.5 bg-amber-50/70 p-3.5 rounded-2xl border border-amber-200/80">
-                  <span className="font-bold text-amber-950 block text-xs mb-1">وضعیت پنج‌شنبه‌ها در این بازه زمانی *</span>
-
-                  <label className="flex items-start gap-2.5 cursor-pointer text-xs p-2 rounded-xl hover:bg-amber-100/50 transition-colors">
-                    <input
-                      type="radio"
-                      name="rangeThuMode"
-                      value="special_program"
-                      checked={thursdayRangeForm.mode === 'special_program'}
-                      onChange={() => setThursdayRangeForm({ ...thursdayRangeForm, mode: 'special_program' })}
-                      className="w-4 h-4 text-amber-600 focus:ring-amber-500 mt-0.5"
-                    />
-                    <div>
-                      <span className="font-bold text-slate-800 block">🟪 برنامه ویژه (دروس غیرکتابی / مهارتی)</span>
-                      <span className="text-[10px] text-slate-600">اخلاق، کارگاه‌های مهارتی، تجوید (حضور تحصیلی دارد اما درس اصلی کتب نیست)</span>
-                    </div>
-                  </label>
-
-                  <label className="flex items-start gap-2.5 cursor-pointer text-xs p-2 rounded-xl hover:bg-emerald-100/50 transition-colors">
-                    <input
-                      type="radio"
-                      name="rangeThuMode"
-                      value="main_class"
-                      checked={thursdayRangeForm.mode === 'main_class'}
-                      onChange={() => setThursdayRangeForm({ ...thursdayRangeForm, mode: 'main_class' })}
-                      className="w-4 h-4 text-emerald-600 focus:ring-emerald-500 mt-0.5"
-                    />
-                    <div>
-                      <span className="font-bold text-slate-800 block">📘 برنامه درسی اصلی کامل (کتاب)</span>
-                      <span className="text-[10px] text-slate-600">تدریس کتب درسی و محاسبه به عنوان روز درسی استاندارد</span>
-                    </div>
-                  </label>
-
-                  <label className="flex items-start gap-2.5 cursor-pointer text-xs p-2 rounded-xl hover:bg-slate-200/50 transition-colors">
-                    <input
-                      type="radio"
-                      name="rangeThuMode"
-                      value="off"
-                      checked={thursdayRangeForm.mode === 'off'}
-                      onChange={() => setThursdayRangeForm({ ...thursdayRangeForm, mode: 'off' })}
-                      className="w-4 h-4 text-slate-600 focus:ring-slate-500 mt-0.5"
-                    />
-                    <div>
-                      <span className="font-bold text-slate-800 block">⚪ تعطیل کامل (آخر هفته)</span>
-                      <span className="text-[10px] text-slate-600">پنج‌شنبه‌ها در این بازه تعطیل خواهد بود</span>
-                    </div>
-                  </label>
-                </div>
-
-                <div className="flex items-center justify-end gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowThursdayRangeModal(false)}
-                    className="px-4 py-2.5 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 cursor-pointer"
-                  >
-                    انصراف
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-5 py-2.5 bg-amber-600 text-white font-bold rounded-xl hover:bg-amber-700 shadow-md cursor-pointer"
-                  >
-                    ثبت قانون بازه‌ای
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
 
       {/* --- MODAL 4: IMPORT / EXPORT BACKUP MODAL (GUARANTEED MATCH) --- */}
       <AnimatePresence>
