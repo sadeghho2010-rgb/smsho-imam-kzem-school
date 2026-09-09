@@ -6,13 +6,17 @@ interface ExportPdfOptions {
   filename: string;
   orientation?: 'portrait' | 'landscape';
   marginMM?: number;
+  scale?: number;
+  quality?: number;
 }
 
 export async function exportElementToPdf({
   element,
   filename,
   orientation = 'portrait',
-  marginMM = 6
+  marginMM = 6,
+  scale = 1.4,
+  quality = 0.80
 }: ExportPdfOptions): Promise<void> {
   if (!element) {
     throw new Error('PDF Export Error: Element is missing or undefined.');
@@ -23,7 +27,7 @@ export async function exportElementToPdf({
 
   try {
     const canvas = await html2canvasPro(element, {
-      scale: 2,
+      scale,
       useCORS: true,
       logging: false,
       backgroundColor: '#ffffff',
@@ -71,11 +75,12 @@ export async function exportElementToPdf({
       throw new Error('PDF Export Error: Generated canvas has invalid dimensions.');
     }
 
-    const imgData = canvas.toDataURL('image/jpeg', 0.95);
+    const imgData = canvas.toDataURL('image/jpeg', quality);
     const pdf = new jsPDF({
       unit: 'mm',
       format: 'a4',
-      orientation
+      orientation,
+      compress: true
     });
 
     const pageWidth = pdf.internal.pageSize.getWidth();
@@ -91,13 +96,13 @@ export async function exportElementToPdf({
     let heightLeft = imgHeight;
     let position = marginMM;
 
-    pdf.addImage(imgData, 'JPEG', marginMM, position, printWidth, imgHeight);
+    pdf.addImage(imgData, 'JPEG', marginMM, position, printWidth, imgHeight, undefined, 'FAST');
     heightLeft -= (pageHeight - (marginMM * 2));
 
     while (heightLeft > 0) {
       position = heightLeft - imgHeight + marginMM;
       pdf.addPage();
-      pdf.addImage(imgData, 'JPEG', marginMM, position, printWidth, imgHeight);
+      pdf.addImage(imgData, 'JPEG', marginMM, position, printWidth, imgHeight, undefined, 'FAST');
       heightLeft -= (pageHeight - (marginMM * 2));
     }
 
